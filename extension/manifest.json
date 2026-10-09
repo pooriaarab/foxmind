@@ -13,6 +13,7 @@
     }
   },
   "permissions": ["storage", "unlimitedStorage"],
+  "optional_permissions": ["trialML"],
   "background": {
     "scripts": ["background.js"],
     "type": "module"

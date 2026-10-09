@@ -131,3 +131,15 @@ proxy to Hugging Face that can cut a download in half.
 | F53 | A small model writes a tool call (`<tool_call>…</tool_call>`) whose JSON is broken or cut off. | Throw code `bad_tool_call` with the tool name when the text has one. | `tests/toolcalls.test.ts` |
 | F54 | A Qwen3 model thinks out loud before it answers. | Thinking is off by default. A `<think>` block that still comes moves to `message.reasoning`. | `tests/toolcalls.test.ts` |
 | F55 | The chat model is about 0.5 GB, too big to download in every CI run. | `e2e/run.mjs` runs it only when `FOXMIND_E2E_HEAVY=1`, and the artifact says which checks ran and which it skipped. | `e2e/run.mjs` "in-browser chat" |
+
+## Firefox trial ML (`trialML`)
+
+`browser.trial.ml` runs Firefox's own inference engine. Tests: `e2e/run.mjs`.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F56 | `browser.trial.ml` is missing (not Firefox, or the API is off). | `probe()` returns code `unsupported` with the reason. | "trial.ml probe" (checked through the code path in the demo, which runs where it exists) |
+| F57 | The user has not granted the optional `trialML` permission. | `probe()` returns code `permission` and says to call `requestTrialML()` from a click. A call throws code `permission`. | "trial.ml before the grant" |
+| F58 | Firefox allows one engine per extension, and a second `trialML()` asks for another task or model. | Throw code `unsupported` that names the provider that holds the engine. | "one engine" |
+| F59 | The engine returns a shape foxmind does not expect. | Turn nested arrays and tensor-like objects into one vector per text. Throw `bad_response` for anything else. | "trial.ml embed" |
+| F60 | Firefox drops the engine when memory is low. | Throw code `out_of_memory`. Firefox makes a new engine on the next call. | none: no test machine runs out of memory on demand |
