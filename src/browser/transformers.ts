@@ -3,7 +3,7 @@
 import type { Origin } from "../http.js";
 import { checkReply } from "../reply.js";
 import type { ChatReply, Message, Provider, ProviderStatus } from "../types.js";
-import { loadOnce, onProgress, pickDevice, toBrowserError, transformersJs, type Device } from "./runtime.js";
+import { bounded, loadOnce, onProgress, pickDevice, toBrowserError, transformersJs, type Device } from "./runtime.js";
 import { parseToolCalls } from "./toolcalls.js";
 
 export interface TransformersOptions {
@@ -69,7 +69,9 @@ export function transformers(options: TransformersOptions): Provider {
           async chat(messages: Message[], chatOptions): Promise<ChatReply> {
             const rule = chatOptions.json ? [{ role: "system", content: "Reply with one JSON object and nothing else." }] : [];
             return run(async (pipe) => {
-              const { TextStreamer } = await transformersJs();
+              const { TextStreamer, InterruptableStoppingCriteria } = await transformersJs();
+              // Stops the generation itself when the caller aborts or the time runs out.
+              const stopper = new InterruptableStoppingCriteria();
               const prompt = pipe.tokenizer.apply_chat_template([...rule, ...messages.map(({ reasoning: _r, provider_data: _p, ...m }) => m)], {
                 tokenize: false,
                 add_generation_prompt: true,
@@ -78,13 +80,15 @@ export function transformers(options: TransformersOptions): Provider {
               });
               const onDelta = chatOptions.onDelta;
               const streamer = onDelta ? new TextStreamer(pipe.tokenizer as never, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta }) : undefined;
-              const [output] = (await pipe(prompt, {
+              const generation = pipe(prompt, {
                 max_new_tokens: chatOptions.maxTokens ?? options.maxNewTokens ?? 256,
                 do_sample: (chatOptions.temperature ?? 0) > 0,
                 ...(chatOptions.temperature ? { temperature: chatOptions.temperature } : {}),
                 return_full_text: false,
+                stopping_criteria: stopper,
                 ...(streamer ? { streamer } : {}),
-              })) as { generated_text: string }[];
+              });
+              const [output] = (await bounded(origin, generation, chatOptions, () => stopper.interrupt())) as { generated_text: string }[];
               const { content, toolCalls } = parseToolCalls(output?.generated_text ?? "");
               const message: ChatReply["message"] = { role: "assistant", content, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
               return checkReply(origin, { message, finishReason: toolCalls.length ? "tool_calls" : "stop" }, chatOptions.json);

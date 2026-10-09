@@ -1,7 +1,8 @@
 // What every in-browser model needs: transformers.js set up for an extension
 // page, WebGPU detection, the model cache, and load errors mapped to codes.
 import { failure, type Origin } from "../http.js";
-import type { FoxmindError } from "../errors.js";
+import { FoxmindError } from "../errors.js";
+import type { CallOptions } from "../types.js";
 
 type Transformers = typeof import("@huggingface/transformers");
 export type Device = "auto" | "webgpu" | "wasm";
@@ -89,8 +90,36 @@ export async function isCached(model: string): Promise<boolean> {
   return Boolean((await cachedFiles(model))?.keys.length);
 }
 
+/**
+ * Wait for work, but stop waiting at the caller's abort or after timeoutMs
+ * (when either is given). onStop runs then, to stop the work where it can.
+ */
+export async function bounded<T>(origin: Origin, work: Promise<T>, limits: CallOptions, onStop?: () => void): Promise<T> {
+  const { signal, timeoutMs } = limits;
+  if (!signal && timeoutMs === undefined) return work;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const stopped = new Promise<never>((_, reject) => {
+    const stop = (error: FoxmindError) => {
+      onStop?.();
+      reject(error);
+    };
+    onAbort = () => stop(failure(origin, "aborted", "The caller stopped the call."));
+    if (signal?.aborted) onAbort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs !== undefined) timer = setTimeout(() => stop(failure(origin, "timeout", `No answer within ${timeoutMs} ms.`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, stopped]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Map an error from a model load or run to a FoxmindError code. */
 export function toBrowserError(origin: Origin, error: unknown, model: string): FoxmindError {
+  if (error instanceof FoxmindError) return error;
   const message = error instanceof Error ? error.message : String(error);
   if (/out of memory|allocation failed|could not allocate|memory access out of bounds|device (was )?lost|maximum buffer size|exceeds the max/i.test(message)) {
     return failure(origin, "out_of_memory", `${model} needs more memory than this device has (${message}). Try a smaller model or a smaller dtype such as "q4".`, { cause: error });

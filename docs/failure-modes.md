@@ -231,3 +231,15 @@ Storage and a fake WebGPU adapter, and a fake `open()` that fails on purpose.
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | F83 | A server sends tool call pieces with no `index`, so every call merged into the first one. A server that repeats the name in each piece got the name twice ("clickclick"). | A piece with no `index` and a new `id` starts a new call. The name is set once, from the first piece that has it. | `tests/stream.test.ts` "tool calls with no index", "name sent twice" |
+
+## Aborts and checks for in-browser calls (review fix)
+
+Tests: `tests/trialml.test.ts` (a fake `browser.trial.ml` in Node) and
+`tests/browser-chat.test.ts` (a fake transformers.js pipeline in Node).
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F84 | The caller aborts, or `timeoutMs` passes, during a trial ML call. foxmind waited for the engine anyway. | Throw `aborted` or `timeout` at once. (Firefox gives no way to stop the engine itself.) | "trial.ml abort", "trial.ml timeout" |
+| F85 | `trialML` chat with `json: true` returned text that is not JSON. | Run the same reply checks as every provider: throw `bad_json`. | "trial.ml json" |
+| F86 | Each new engine added one more `onProgress` listener. | Add the listener once per page. | "one progress listener" |
+| F87 | In-browser chat (`transformers`) ignored `signal` and `timeoutMs`. | Stop the generation with transformers.js' stopping criteria and throw `aborted` or `timeout`. | "chat abort", "chat timeout" |
