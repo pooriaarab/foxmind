@@ -1,2 +1,3 @@
-// The public API of foxmind. Replace this export with the real one.
-export const name = "foxmind";
+// The public API of foxmind for Node and the browser.
+export { FoxmindError, type ErrorCode, type Skip } from "./errors.js";
+export type * from "./types.js";
