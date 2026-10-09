@@ -278,3 +278,8 @@ row is a way that the listed build or the submission can go wrong.
 | AR9 | The AMO version lookup fails (401, 500, network) | `version-status` stops; it never guesses `absent` |
 | AR10 | The release build keeps `http://localhost/*`, which no code in the add-on calls (it calls only 127.0.0.1:8080 and 127.0.0.1:11434) | The manifest drops it; AR3 stops the check if it comes back without a reason |
 | AR11 | The release build keeps the e2e content script or `e2e/ops.js` | `build-ext.mjs` adds them only with `--e2e`; AR2 and AR4 stop the check otherwise |
+
+| ID | Failure | Wanted result |
+|---|---|---|
+| AR-U1 | A `local_hosts` reason for a host permission also clears a test content script on the same pattern | Each reason names its use (`host_permission`, `content_script`, `web_accessible_resource`, `externally_connectable`); a use without its own reason stops the check |
+| AR-U2 | `local_hosts` keeps a reason for a use that the release build does not have | The check stops and names the pattern and the use |
