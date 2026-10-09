@@ -106,4 +106,14 @@ describe("http", () => {
     const { url } = await serve((_, res) => { res.writeHead(200).end("<html>hello</html>"); });
     expect((await failure(get(url))).code).toBe("bad_response");
   });
+
+  it("redirect (F73)", async () => {
+    const other = await fakeServer((_, res) => json(res, 200, { stolen: true }));
+    const { url } = await serve((_, res) => { res.writeHead(307, { location: `${other.url}/v1/x` }).end(); });
+    const error = await failure(call(origin, `${url}/v1/x`, { headers: { "x-api-key": KEY, "api-key": KEY }, body: { a: 1 } }, 2000));
+    await other.close();
+    expect(error).toMatchObject({ code: "http", status: 307 });
+    expect(error.message).toContain(other.url);
+    expect(other.seen).toHaveLength(0);
+  });
 });

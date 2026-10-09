@@ -104,9 +104,16 @@ export async function call(origin: Origin, url: string, request: Request, fallba
       headers: { ...(request.body === undefined ? {} : { "content-type": "application/json" }), ...request.headers },
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
       signal,
+      // Never follow a redirect: fetch would send the key headers to the new host.
+      redirect: "manual",
     });
   } catch (error) {
     throw fail(error);
+  }
+  if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+    const target = response.headers.get("location") ?? "a URL the browser does not show";
+    await response.body?.cancel().catch(() => {});
+    throw failure(origin, "http", `${url} answered ${response.status || "a redirect"} to ${target}. foxmind does not follow redirects, so no key goes to another URL. Use the final URL as baseURL.`, { status: response.status || undefined });
   }
   if (!response.ok) throw await httpFailure(origin, response);
   const json = async <T>() => {

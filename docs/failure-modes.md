@@ -182,3 +182,9 @@ background page, so every view shares them. Tests: `e2e/run.mjs` "demo panel".
 | F72 | Ollama refuses the extension's origin with 403 (it allows `moz-extension://` only when `OLLAMA_ORIGINS` says so). | Throw code `auth` with the fix: start Ollama with `OLLAMA_ORIGINS=moz-extension://*`. | "demo panel test prompt" |
 | F70a | Ollama is not running (as on a CI runner). The panel still listed "ollama" in `prefer`, so `createMind` threw a `TypeError` and the test prompt showed an error. | `prefer` names only the servers the panel found. A failed E2E check prints what it saw, and CI uploads `artifacts/` when the E2E job fails. | "demo panel test prompt", with Ollama unreachable from Firefox |
 | F71 | The embedding test runs on a device the panel does not name. | The panel shows the similarity, the device (`webgpu` or `wasm`) and the time. | "demo panel embedding" |
+
+## Redirects (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F73 | A server answers 301, 302, 307 or 308 and points to another host. fetch would follow it and send `Authorization`, `x-api-key` or a custom key header there. | Never follow a redirect. Throw code `http` with the status and the target, and send nothing to the target. | `tests/http.test.ts` "redirect", `tests/anthropic.test.ts` "redirect" |
