@@ -1,8 +1,11 @@
 // Firefox's own on-device inference engine, browser.trial.ml. It needs the
 // optional "trialML" permission, takes models only from the Mozilla hub and the
 // Mozilla and Xenova orgs on Hugging Face, and allows one engine per extension.
+import { FoxmindError } from "../errors.js";
 import { failure, type Origin } from "../http.js";
-import type { Message, Provider, ProviderStatus } from "../types.js";
+import { checkReply } from "../reply.js";
+import { bounded } from "./runtime.js";
+import type { CallOptions, Message, Provider, ProviderStatus } from "../types.js";
 
 type TrialMl = {
   createEngine(request: Record<string, unknown>): Promise<unknown>;
@@ -51,6 +54,9 @@ export function requestTrialML(): Promise<boolean> {
 
 /** Firefox allows one engine per extension, so the first provider to start one keeps it. */
 let engine: { owner: string; key: string; ready: Promise<unknown> } | undefined;
+/** The status that engine progress goes to. One listener per page, however often the engine restarts. */
+let progressTo: { progress?: number } | undefined;
+let listening = false;
 
 /** One vector per text from whatever shape the engine returns. */
 export function toVectors(result: unknown, count: number): number[][] | undefined {
@@ -116,10 +122,14 @@ export function trialML(options: TrialMLOptions): Provider {
     if (engine && engine.key !== key) throw failure(origin, "unsupported", `Firefox allows one trial.ml engine per extension, and ${engine.owner} holds it (${engine.key}).`);
     if (!engine) {
       state.state = "loading";
-      ml.onProgress.addListener((data) => {
-        const progress = Number(data.progress ?? data.totalProgress);
-        if (Number.isFinite(progress)) state.progress = progress > 1 ? progress / 100 : progress;
-      });
+      progressTo = state;
+      if (!listening) {
+        listening = true;
+        ml.onProgress.addListener((data) => {
+          const progress = Number(data.progress ?? data.totalProgress);
+          if (progressTo && Number.isFinite(progress)) progressTo.progress = progress > 1 ? progress / 100 : progress;
+        });
+      }
       const request = { taskName: chat ? "text-generation" : "feature-extraction", modelHub: "huggingface", modelId: model, ...(llama ? { backend: "llama.cpp", modelFile: options.modelFile } : { device }) };
       const started = { owner: name, key, ready: ml.createEngine(request) };
       engine = started;
@@ -143,20 +153,18 @@ export function trialML(options: TrialMLOptions): Provider {
     return failure(origin, "bad_response", `trial.ml failed: ${message}`);
   }
 
-  /** One engine call, stopped after timeoutMs: an engine that never answers must not hang the caller. */
-  async function run(args: unknown[], runOptions: Record<string, unknown>, timeoutMs = 120_000): Promise<unknown> {
-    const ml = await ready();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(failure(origin, "timeout", `trial.ml gave no answer within ${timeoutMs} ms.`)), timeoutMs);
-    });
+  /**
+   * One engine call. It stops waiting at the caller's abort or after
+   * timeoutMs (default 120 s): an engine that never answers must not hang the
+   * caller. Firefox has no call to stop the engine itself.
+   */
+  async function run(args: unknown[], runOptions: Record<string, unknown>, callOptions: CallOptions = {}): Promise<unknown> {
+    const ml = await bounded(origin, ready(), { signal: callOptions.signal });
     try {
-      return await Promise.race([ml.runEngine({ args, options: runOptions, ...(llama ? runOptions : {}) }), timeout]);
+      return await bounded(origin, ml.runEngine({ args, options: runOptions, ...(llama ? runOptions : {}) }), { signal: callOptions.signal, timeoutMs: callOptions.timeoutMs ?? 120_000 });
     } catch (error) {
-      if ((error as { code?: string }).code === "timeout") throw error;
+      if (error instanceof FoxmindError) throw error;
       throw mapped(error);
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -182,15 +190,15 @@ export function trialML(options: TrialMLOptions): Provider {
             const plain = messages.map(({ role, content }) => ({ role, content }));
             const maxTokens = chatOptions.maxTokens ?? 256;
             // The ONNX backend takes { args, options }; the llama.cpp backend takes { prompt, nPredict }.
-            const output = await run([plain], llama ? { prompt: plain, nPredict: maxTokens } : { max_new_tokens: maxTokens }, chatOptions.timeoutMs);
+            const output = await run([plain], llama ? { prompt: plain, nPredict: maxTokens } : { max_new_tokens: maxTokens }, chatOptions);
             const content = generatedText(output);
             if (typeof content !== "string") throw failure(origin, "bad_response", "trial.ml returned no generated text.");
-            return { message: { role: "assistant" as const, content }, finishReason: "stop" as const };
+            return checkReply(origin, { message: { role: "assistant" as const, content }, finishReason: "stop" as const }, chatOptions.json);
           },
         }
       : {
           async embed(texts: string[], embedOptions) {
-            const vectors = toVectors(await run([texts], { pooling: "mean", normalize: true }, embedOptions.timeoutMs), texts.length);
+            const vectors = toVectors(await run([texts], { pooling: "mean", normalize: true }, embedOptions), texts.length);
             if (!vectors) throw failure(origin, "bad_response", "trial.ml returned a shape that is not one vector per text.");
             return vectors;
           },
