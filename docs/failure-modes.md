@@ -77,3 +77,20 @@ Tests: `tests/presets.test.ts`, against a fake server on a free port.
 | F30 | llama-server serves one model under any name. | `llamaServer().probe()` does not check the model name. | "llama-server any name" |
 | F31 | Saluki thinks for a long time before a tool call. | `saluki()` turns thinking off and sets temperature 0 by default, as the model card says for tool calls. `thinking: true` uses the card's thinking settings. | "saluki settings" |
 | F32 | No local server is running. | Each preset's probe returns `unreachable` with the start command in the reason. | "preset down" |
+
+## Anthropic provider (`anthropic`)
+
+The Anthropic Messages API has a different shape from the OpenAI API. The
+provider maps both ways, so a caller sees only the OpenAI shape.
+Tests: `tests/anthropic.test.ts`, against a fake Messages API server.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F33 | System messages are in the wrong place. | Leading system messages become the top-level `system`. Later ones stay in place. | "request shape" |
+| F34 | Tool results go out as separate user turns. | Consecutive `tool` messages become one user message with one `tool_result` block each. | "request shape" |
+| F35 | A past tool call in the history has arguments that are not JSON. | Throw code `bad_tool_call` before any request goes out. | "bad tool call in history" |
+| F36 | The reply shape does not match. | `tool_use` blocks become `tool_calls` with JSON string arguments. Stop reasons map: `tool_use` to `tool_calls`, `max_tokens` to `length`, `refusal` to `content_filter`. Thinking blocks go back unchanged on the next turn through `provider_data`. | "reply shape", "thinking blocks go back" |
+| F37 | `json: true`, but there is no JSON mode. | Ask for JSON in the system prompt. Accept a fenced block. Throw `bad_json` when there is no JSON. | "json" |
+| F38 | A stream breaks, or ends with no `message_stop`. | Join `text_delta` and `input_json_delta` pieces. Throw `stream_interrupted` with `partial` when the stream ends early. An `error` event throws its mapped code. | "stream", "stream ends early", "error event" |
+| F39 | The API is busy (429 or 529). | 429 throws `rate_limited` with `retryAfterMs`. 529 throws `http` with status 529. | "busy" |
+| F40 | The key or the model is wrong. | `probe()` asks `GET /v1/models/{model}`: 404 gives `model_not_found`, 401 gives `auth`. The key is never in an error or the status. | "probe", "key leak" |
