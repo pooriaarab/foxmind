@@ -50,3 +50,18 @@ Tests: `tests/stream.test.ts`, against a fake server that sends server-sent even
 | F18 | The server sends an error event inside a 200 stream. | Throw code `http` with the server's message. | "error event" |
 | F19 | Tool call pieces arrive across many events, and the result is not valid JSON. | Join the pieces by index. Throw code `bad_tool_call` when the joined arguments do not parse. | "streamed tool call", "streamed bad tool call" |
 | F20 | The stream stops sending, but the connection stays open. | Throw code `timeout` after `timeoutMs`, with `partial`. | "stalled stream" |
+
+## Router (`createMind`)
+
+Tests: `tests/mind.test.ts`. Most tests use small in-memory providers, so each
+case is exact. One test streams from a fake server over real HTTP.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F21 | No provider has the capability, or every one that has it is down. | Throw code `no_provider`. The message and `skipped` list each provider and why. | "no provider" |
+| F22 | The preferred provider is down. | Skip it, use the next one, and list the skip in `result.skipped`. The result names the provider and tier that answered. | "skips a provider that is down" |
+| F23 | A provider fails during the call. | By default, throw that error with `skipped`. Do not try another provider in secret. With `fallbackOnError: true`, try the next one and list the failure in `result.skipped`. | "no silent fallback", "fallbackOnError" |
+| F24 | A provider fails after some text has streamed. | Never fall back, also with `fallbackOnError`, because the caller already showed that text. | "no fallback after streamed text" |
+| F25 | The caller aborts. | Throw `aborted`. Never fall back. | "abort" |
+| F26 | A server goes down after a good probe. | The call error clears the cached probe, so the next call probes again. | "probe cache" |
+| F27 | `prefer` names a provider or tier that does not exist, or two providers share a name. | `createMind` throws a `TypeError` at once. | "bad config" |
