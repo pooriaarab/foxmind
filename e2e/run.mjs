@@ -5,6 +5,7 @@
 import { launch, poll, writeArtifact } from "create-foxkit/e2e";
 import { readFileSync } from "node:fs";
 import { doctor } from "../dist/index.js";
+import { startFakeLlama } from "./fake-llama.mjs";
 import { startHub } from "./hub.mjs";
 
 const record = { startedAt: new Date().toISOString(), checks: [], timings: {} };
@@ -22,6 +23,9 @@ const cosine = (a, b) => a.reduce((sum, x, i) => sum + x * b[i], 0);
 const best = (scores) => Object.entries(scores).toSorted((a, b) => b[1] - a[1])[0][0];
 
 const hub = await startHub();
+// A fake llama-server on :8080 unless a real one runs there, so the demo panel's test prompt always has a server.
+const fakeLlama = await startFakeLlama();
+record.llamaServer = fakeLlama ? `fake (${fakeLlama.model})` : "already running on :8080";
 let fox;
 try {
   fox = await launch({
@@ -198,6 +202,7 @@ try {
 } finally {
   await fox?.close();
   await hub.close();
+  await fakeLlama?.close();
 }
 record.passed = !record.error && record.checks.length > 0 && record.checks.every((c) => c.ok);
 const path = writeArtifact("artifacts", process.argv.includes("--headed") ? "e2e-headed" : "e2e", record);
