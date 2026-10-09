@@ -49,14 +49,14 @@ export function anthropic(options: AnthropicOptions): Provider {
     "anthropic-dangerous-direct-browser-access": "true",
   });
 
-  /** OpenAI messages to Anthropic: leading system messages, grouped tool results, tool_use blocks. */
+  /** OpenAI messages to Anthropic: system messages to `system`, grouped tool results, tool_use blocks. */
   function toWire(messages: Message[]): { system: string[]; messages: Wire[] } {
     const system: string[] = [];
     const out: Wire[] = [];
     for (const message of messages) {
       if (message.role === "system") {
-        if (out.length) out.push({ role: "system", content: message.content ?? "" });
-        else system.push(message.content ?? "");
+        // Many models reject role "system" inside messages, so every system message joins the top-level system, in order.
+        system.push(message.content ?? "");
       } else if (message.role === "user") {
         out.push({ role: "user", content: message.content ?? "" });
       } else if (message.role === "tool") {
