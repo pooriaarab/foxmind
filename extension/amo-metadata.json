@@ -1,0 +1,18 @@
+{
+  "default_locale": "en-US",
+  "slug": "foxmind",
+  "name": { "en-US": "foxmind — check on-device AI models" },
+  "summary": {
+    "en-US": "See which AI model tiers work in your browser and on your computer: WebGPU, Firefox's built-in trial ML, llama-server and Ollama. Try a prompt on a local model server and compare two sentences with an in-browser embedding model."
+  },
+  "description": {
+    "en-US": "foxmind is an open-source library that gives one API over three tiers of AI models: models in the browser, a model server on your own computer, and a cloud model with your own key. This add-on is its panel. It opens from the toolbar and in the sidebar.\n\n**Who it is for:** developers who build AI features in browser extensions, and people who want to know which local models their computer can run.\n\n**What it does**\n\n- Shows whether WebGPU works, and whether Firefox's trial ML API can run here. If trial ML needs a permission, a button asks for it.\n- Checks for llama-server on port 8080 (and the Underdog Saluki 27B model on it) and Ollama on port 11434, on this computer, and lists their models.\n- Sends a prompt that you type to the first local server that works, and shows which one answered and how long it took.\n- Compares two sentences with a small embedding model (all-MiniLM-L6-v2) that runs in the browser.\n\nThe panel does not ask for a cloud key, and it never sends text to a cloud model.\n\n**What leaves your computer**\n\n- Your prompt goes only to a model server on this computer (127.0.0.1).\n- The first time you compare sentences, the add-on downloads the model files (about 23 MB) from Hugging Face. To check whether trial ML can run, it reads the model's public details from Hugging Face. These requests do not hold your text.\n- The add-on has no server and sends nothing to its authors.\n\n**Permissions**\n\n- Storage and unlimited storage: the downloaded model files stay in the browser cache.\n- Access to 127.0.0.1 and localhost: talk to llama-server and Ollama on your computer.\n- Trial ML (optional, asked for with a button): run Firefox's built-in models.\n\nTo use Ollama, start it with `OLLAMA_ORIGINS=\"moz-extension://*\"`. The source code is MIT licensed."
+  },
+  "categories": { "firefox": ["web-development"] },
+  "homepage": { "en-US": "https://github.com/pooriaarab/foxmind" },
+  "support_url": { "en-US": "https://github.com/pooriaarab/foxmind/issues" },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "The uploaded source.zip is the git tree of this release. To build: install Node 24 and pnpm 11 (corepack enable), run `pnpm install --frozen-lockfile`, then `pnpm build:ext`. The output is dist-ext/. esbuild bundles extension/background.js and extension/panel.js with src/ and @huggingface/transformers. dist-ext/ort/ holds the ONNX Runtime WASM files from the onnxruntime-web npm package, unmodified, because MV3 allows no remote code. To try it without any server: open the panel and press Compare; it downloads all-MiniLM-L6-v2 from Hugging Face and shows a similarity. The prompt needs llama-server or Ollama on this computer. No account is needed."
+  }
+}

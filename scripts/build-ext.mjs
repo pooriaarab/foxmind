@@ -32,6 +32,7 @@ await build({
   define: { __E2E__: String(values.e2e) },
 });
 for (const file of ["panel.html", "panel.css"]) cpSync(`extension/${file}`, join(out, file));
+cpSync("extension/icons", join(out, "icons"), { recursive: true });
 writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
 const transformers = realpathSync("node_modules/@huggingface/transformers");

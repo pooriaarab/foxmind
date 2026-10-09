@@ -181,10 +181,13 @@ Flags: `--json`, `--ollama URL`, `--llama-server URL`, `--lm-studio URL`,
 `--timeout MS`. The exit code is 0 when at least one server works, 1 when none
 does, and 2 for bad input. There is no MCP server.
 
-### Demo extension
+### Extension
+
+Install from AMO: [addons.mozilla.org/firefox/addon/foxmind](https://addons.mozilla.org/firefox/addon/foxmind/)
+(pending AMO review; the link works after approval).
 
 `extension/` is a small Firefox extension. Its panel opens from the toolbar and
-in the sidebar. It shows which tiers work, sends a test prompt to a local
+in the sidebar. It shows which tiers work, sends a prompt to a local
 server, and compares two sentences with an in-browser embedding model. Build it
 with `pnpm build:ext` and load `dist-ext/manifest.json` from `about:debugging`.
 `pnpm build:ext` makes the build AMO signs. `node scripts/build-ext.mjs --e2e`
