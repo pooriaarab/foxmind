@@ -43,3 +43,10 @@ jobs:
       - run: pnpm e2e
         env:
           FIREFOX: ${{ steps.firefox.outputs.firefox-path }}
+      - name: Upload the E2E artifact when the test fails
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-artifacts
+          path: artifacts/
+          if-no-files-found: warn

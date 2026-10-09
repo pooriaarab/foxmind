@@ -2,8 +2,10 @@
 // Firefox, run in-browser models in its background page, and write
 // artifacts/e2e-<date>.json with every check and timing.
 // Usage: pnpm e2e [--headed]. Env: FIREFOX (the Firefox binary).
-import { launch, writeArtifact } from "create-foxkit/e2e";
+import { launch, poll, writeArtifact } from "create-foxkit/e2e";
 import { readFileSync } from "node:fs";
+import { doctor } from "../dist/index.js";
+import { startFakeLlama } from "./fake-llama.mjs";
 import { startHub } from "./hub.mjs";
 
 const record = { startedAt: new Date().toISOString(), checks: [], timings: {} };
@@ -21,6 +23,13 @@ const cosine = (a, b) => a.reduce((sum, x, i) => sum + x * b[i], 0);
 const best = (scores) => Object.entries(scores).toSorted((a, b) => b[1] - a[1])[0][0];
 
 const hub = await startHub();
+// A fake llama-server on :8080 unless a real one runs there, so the demo panel's test prompt always has a server.
+const fakeLlama = await startFakeLlama();
+// Wait until :8080 answers before Firefox starts, and record what it serves.
+const served = await fetch("http://127.0.0.1:8080/v1/models", { signal: AbortSignal.timeout(5000) })
+  .then(async (response) => `${response.status} ${(await response.text()).slice(0, 200)}`)
+  .catch((error) => `no answer: ${error.message}`);
+record.llamaServer = { server: fakeLlama ? `fake (${fakeLlama.model})` : "something already listens on :8080", models: served };
 let fox;
 try {
   fox = await launch({
@@ -30,7 +39,7 @@ try {
     prefs: PREFS,
   });
   record.firefox = await fox.browser.version();
-  const page = await fox.openExtensionPage("popup.html");
+  const page = await fox.openExtensionPage("panel.html");
   /** Send one request to the background page, and time it. */
   const ask = async (message) => {
     const started = Date.now();
@@ -76,6 +85,32 @@ try {
     check("webgpu present: the model runs on webgpu (F46)", gpu.ok && run.status?.where === "webgpu", run.status ?? run.error);
   } else {
     check("webgpu missing: probe says webgpu_missing (F46)", gpu.ok === false && gpu.code === "webgpu_missing", gpu);
+  }
+
+  // The demo panel: tier rows, the test prompt and the embedding test.
+  const [found] = await Promise.all([doctor({ timeoutMs: 2000 }), poll(page, () => document.body.dataset.ready === "1", undefined, 60_000)]);
+  const rows = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll("[data-row]")].map((row) => [row.dataset.row, row.dataset.ok])));
+  const expected = Object.fromEntries(found.checks.filter((c) => c.name === "ollama" || c.name === "llama-server").map((c) => [c.name, String(c.ok)]));
+  check("demo panel rows match doctor (F69)", rows.ollama === expected.ollama && rows["llama-server"] === expected["llama-server"] && rows.webgpu === String(record.env.webgpuAdapter), { rows, expected });
+  await page.evaluate(() => { document.getElementById("prompt").value = "Reply with the word ready. /no_think"; document.getElementById("run").click(); });
+  const said = await poll(page, () => document.getElementById("chat-result").dataset.done && document.getElementById("chat-result").textContent, undefined, 180_000);
+  const up = (name) => found.checks.some((c) => c.ok && c.name === name);
+  // Ollama refuses extension origins unless OLLAMA_ORIGINS allows them, and must say so.
+  const wanted = up("llama-server") ? /answered by llama-server \(local\)/ : up("ollama") ? /answered by ollama \(local\)|OLLAMA_ORIGINS/ : /no_provider/;
+  check("demo panel test prompt (F70)", wanted.test(said), said);
+  await page.evaluate(() => document.getElementById("embed").click());
+  const similar = await poll(page, () => document.getElementById("embed-result").dataset.done && document.getElementById("embed-result").textContent, undefined, 120_000);
+  check("demo panel embedding (F71)", /similarity 0\.\d+ on (webgpu|wasm) in \d+ ms/.test(similar), similar);
+  record.panel = { rows, said, similar };
+  if (process.env.FOXMIND_SCREENSHOT) {
+    // BiDi cannot screenshot moz-extension: pages, so the test copies the
+    // panel's live markup and styles into a normal page and captures that.
+    const html = await page.evaluate(() => `<!doctype html><html><head><meta charset="utf-8"><style>${[...document.styleSheets].flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText)).join("\n")}</style></head>${document.body.outerHTML}</html>`);
+    const shot = await fox.browser.newPage();
+    await shot.setViewport({ width: 420, height: 720 });
+    await shot.setContent(html);
+    await shot.screenshot({ path: process.env.FOXMIND_SCREENSHOT, fullPage: true });
+    await shot.close();
   }
 
   const ungranted = await ask({ op: "trial", step: "probe" });
@@ -146,7 +181,7 @@ try {
   // Firefox allows one trial ML engine per extension, so llama.cpp gets its own Firefox.
   await fox.close();
   fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed"), prefs: PREFS });
-  const page2 = await fox.openExtensionPage("popup.html");
+  const page2 = await fox.openExtensionPage("panel.html");
   const tree2 = await fox.browser.connection.send("browsingContext.getTree", { "moz:scope": "chrome" });
   await fox.browser.connection.send("script.evaluate", {
     expression: `ChromeUtils.importESModule("resource://gre/modules/ExtensionPermissions.sys.mjs").ExtensionPermissions.add("${fox.extensionId}", { permissions: ["trialML"], origins: [] }, WebExtensionPolicy.getByID("${fox.extensionId}").extension)`,
@@ -171,10 +206,13 @@ try {
 } finally {
   await fox?.close();
   await hub.close();
+  await fakeLlama?.close();
 }
 record.passed = !record.error && record.checks.length > 0 && record.checks.every((c) => c.ok);
 const path = writeArtifact("artifacts", process.argv.includes("--headed") ? "e2e-headed" : "e2e", record);
-for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}`);
+// A failed check prints what it saw, so a CI log is enough to see why.
+for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}${c.ok ? "" : `: ${JSON.stringify(c.actual)?.slice(0, 500)}`}`);
+console.log(`llama-server on :8080: ${JSON.stringify(record.llamaServer)}`);
 console.log(JSON.stringify(record.timings));
 console.log(`${record.passed ? "PASS" : "FAIL"}${record.error ? `: ${record.error}` : ""} | ${path}`);
 process.exitCode = record.passed ? 0 : 1;
