@@ -34,12 +34,13 @@
     "e2e": "pnpm build:ext && node e2e/run.mjs"
   },
   "devDependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "@types/node": "^24.19.1",
+    "create-foxkit": "^0.1.0",
+    "esbuild": "^0.28.2",
     "oxlint": "^1.87.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
-    "create-foxkit": "^0.1.0",
-    "esbuild": "^0.28.2",
     "web-ext": "^10.7.0"
   },
   "bin": {
