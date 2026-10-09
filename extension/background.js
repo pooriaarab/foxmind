@@ -1,7 +1,7 @@
 // The demo's background page (an event page with a DOM in Firefox MV3). It
 // hosts the models, so every view shares one loaded model. Views send it
 // requests with browser.runtime.sendMessage; e2e/run.mjs does the same.
-import { configureRuntime, gliner2, hasWebGPU, purgeModel, transformers, trialML } from "../src/browser/index.js";
+import { configureRuntime, gliner2, hasWebGPU, purgeModel, transformers, trialML, wllama } from "../src/browser/index.js";
 
 const providers = new Map();
 
@@ -56,6 +56,15 @@ async function handle(message) {
         return { result: (await entities.classify([message.text], "referenced", message.labels, {}))[0] };
       } catch (error) {
         return { ...failed(error), status: entities.status() };
+      }
+    }
+    case "wllama": {
+      const llama = wllama({ model: message.model, modelFile: message.modelFile });
+      if (message.step === "probe") return llama.probe();
+      try {
+        return { reply: await llama.chat(message.messages, { maxTokens: 24, timeoutMs: message.timeoutMs }), status: llama.status() };
+      } catch (error) {
+        return { ...failed(error), status: llama.status() };
       }
     }
     case "corrupt": {
