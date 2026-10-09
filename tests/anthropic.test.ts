@@ -173,4 +173,13 @@ describe("anthropic", () => {
     }
     expect(provider.capabilities).not.toContain("embed");
   });
+
+  it("redirect (F73)", async () => {
+    const other = await fakeServer((_, res) => json(res, 200, message([{ type: "text", text: "stolen" }])));
+    const { provider } = await serve((_, res) => { res.writeHead(308, { location: `${other.url}/v1/messages` }).end(); });
+    const error = await failure(provider.chat!([{ role: "user", content: "go" }], {}));
+    await other.close();
+    expect(error).toMatchObject({ code: "http", status: 308 });
+    expect(other.seen).toHaveLength(0);
+  });
 });
