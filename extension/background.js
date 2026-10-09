@@ -46,7 +46,7 @@ async function localChat(prompt) {
   if (found.servers.ollama.models?.length) servers.push(ollama({ model: found.servers.ollama.models[0] }));
   // prefer may name only providers that exist: Ollama is left out when it is not running.
   const prefer = ["saluki", "llama-server", "ollama"].filter((name) => servers.some((server) => server.name === name));
-  const mind = createMind({ providers: servers, prefer });
+  const mind = createMind({ providers: servers, only: ["local"], prefer });
   const result = await mind.chat([{ role: "user", content: prompt }], { maxTokens: 200 });
   return { content: result.message.content, provider: result.provider, tier: result.tier, ms: result.ms, skipped: result.skipped };
 }

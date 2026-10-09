@@ -8,6 +8,11 @@ export interface MindOptions {
   providers: Provider[];
   /** Provider names or tiers ("browser", "local", "cloud"), best first. Providers not named come after, in `providers` order. */
   prefer?: string[];
+  /**
+   * The only tiers the router may use. Providers of other tiers are dropped:
+   * never probed, never called. Private mode is `only: ["browser", "local"]`.
+   */
+  only?: Tier[];
   /** When a call fails, try the next provider and list the failure in `skipped`. Default false. */
   fallbackOnError?: boolean;
   /** How long a probe result stays good. Default 30000. */
@@ -64,7 +69,11 @@ function order(providers: Provider[], prefer: string[] = []): Provider[] {
 const aborted = () => new FoxmindError("aborted", "The caller stopped the call.");
 
 export function createMind(options: MindOptions): Mind {
-  const providers = order(options.providers, options.prefer);
+  const only = options.only;
+  for (const tier of only ?? []) if (!TIERS.has(tier)) throw new TypeError(`only names "${tier}", which is not a tier. Tiers: browser, local, cloud.`);
+  const providers = order(options.providers, options.prefer).filter((provider) => !only || only.includes(provider.tier));
+  if (only && !providers.length) throw new TypeError(`only: [${only.join(", ")}] leaves no provider. Add a provider of one of those tiers.`);
+  const excluded = only ? ` only: [${only.join(", ")}] excluded the other tiers.` : "";
   const ttl = options.probeTtlMs ?? 30_000;
   const probes = new Map<string, { at: number; result: Probe }>();
   let last: MindStatus["last"];
@@ -90,7 +99,7 @@ export function createMind(options: MindOptions): Mind {
   async function call<T>(capability: Capability, callOptions: ChatOptions, run: (provider: Provider, options: ChatOptions) => Promise<T>): Promise<{ value: T } & Answered> {
     const able = providers.filter((provider) => provider.capabilities.includes(capability));
     if (!able.length) {
-      throw new FoxmindError("no_provider", `No provider can ${capability}. Providers: ${providers.map((p) => `${p.name} (${p.capabilities.join(", ")})`).join("; ") || "none"}.`, { skipped: [] });
+      throw new FoxmindError("no_provider", `No provider can ${capability}. Providers: ${providers.map((p) => `${p.name} (${p.capabilities.join(", ")})`).join("; ") || "none"}.${excluded}`, { skipped: [] });
     }
     const skipped: Skip[] = [];
     for (const provider of able) {
@@ -123,7 +132,7 @@ export function createMind(options: MindOptions): Mind {
       }
     }
     const list = skipped.map((skip) => `${skip.provider} (${skip.tier}): ${skip.reason}`).join("; ");
-    throw new FoxmindError("no_provider", `No provider could ${capability}. ${list}`, { skipped });
+    throw new FoxmindError("no_provider", `No provider could ${capability}. ${list}${excluded}`, { skipped });
   }
 
   return {
