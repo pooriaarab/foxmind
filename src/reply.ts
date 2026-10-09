@@ -42,7 +42,8 @@ export function checkReply(origin: Origin, reply: ChatReply, json: boolean | und
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw failure(origin, "bad_tool_call", `The arguments of tool call "${toolCall.function.name}" are not a JSON object.`, { raw: text });
     }
-    return { ...toolCall, function: { ...toolCall.function, arguments: text } };
+    // Only the OpenAI fields: some servers add their own (Ollama adds "index").
+    return { id: toolCall.id, type: "function" as const, function: { name: toolCall.function.name, arguments: text } };
   });
   if (calls?.length) message.tool_calls = calls;
   else delete message.tool_calls;

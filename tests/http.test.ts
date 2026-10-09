@@ -92,6 +92,11 @@ describe("http", () => {
     expect(error.message).toContain("model crashed");
   });
 
+  it("501 (F6)", async () => {
+    const { url } = await serve((_, res) => json(res, 501, { error: { message: "This server does not support embeddings." } }));
+    expect(await failure(get(url))).toMatchObject({ code: "unsupported", status: 501 });
+  });
+
   it("model 404 (F7)", async () => {
     const { url } = await serve((_, res) => json(res, 404, { error: { message: 'model "m1" not found, try pulling it first' } }));
     expect((await failure(get(url))).code).toBe("model_not_found");

@@ -25,7 +25,7 @@ async function failure(promise: Promise<unknown>): Promise<FoxmindError> {
 describe("openaiCompatible", () => {
   it("sends the OpenAI request shape and maps the reply and tool calls", async () => {
     const { provider, seen } = await serve((_, res) =>
-      json(res, 200, completion({ content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "click", arguments: '{"id":"b2"}' } }] }, "tool_calls")),
+      json(res, 200, completion({ content: null, tool_calls: [{ id: "c1", index: 0, type: "function", function: { name: "click", arguments: '{"id":"b2"}' } }] }, "tool_calls")),
     );
     const reply = await provider.chat!(hi, { tools: [tool], temperature: 0 });
     expect(seen[0]!.path).toBe("/v1/chat/completions");

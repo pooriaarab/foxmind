@@ -78,6 +78,7 @@ export async function httpFailure(origin: Origin, response: Response): Promise<F
   const text = `HTTP ${status}${said ? `: ${said}` : ""}`;
   if (status === 429) return failure(origin, "rate_limited", text, { status, retryAfterMs: retryAfter(response.headers) });
   if (status === 401 || status === 403) return failure(origin, "auth", text, { status });
+  if (status === 501) return failure(origin, "unsupported", text, { status });
   if ((status === 404 || status === 400) && /model/i.test(said) && /not.?found|does not exist|unknown/i.test(said)) {
     return failure(origin, "model_not_found", text, { status });
   }

@@ -21,7 +21,7 @@ call it over real HTTP.
 | F3 | The server is too slow. | Throw code `timeout` after `timeoutMs`, also when the body stops halfway. A caller abort throws code `aborted`, not `timeout`. | "timeout", "slow body", "abort" |
 | F4 | The API key is wrong (401 or 403). | Throw code `auth`. | "401" |
 | F5 | The API key leaks into logs. | The key is not in the error message, the stack or `JSON.stringify(error)`. A server error body that echoes the key, or any `sk-…` key, shows `[redacted]`. | "key leak" |
-| F6 | The server answers 500. | Throw code `http` with the status and the server's own message. | "500" |
+| F6 | The server answers 500. | Throw code `http` with the status and the server's own message. A 501 (for example "this server does not support embeddings") throws code `unsupported`. | "500", "501" |
 | F7 | The model name is wrong, and the server says so with 404 or 400. | Throw code `model_not_found`. | "model 404" |
 | F8 | The server answers 200 with a body that is not JSON. | Throw code `bad_response`. | "not json" |
 
@@ -65,3 +65,15 @@ case is exact. One test streams from a fake server over real HTTP.
 | F25 | The caller aborts. | Throw `aborted`. Never fall back. | "abort" |
 | F26 | A server goes down after a good probe. | The call error clears the cached probe, so the next call probes again. | "probe cache" |
 | F27 | `prefer` names a provider or tier that does not exist, or two providers share a name. | `createMind` throws a `TypeError` at once. | "bad config" |
+
+## Local server presets (`ollama`, `llamaServer`, `lmStudio`, `saluki`)
+
+Tests: `tests/presets.test.ts`, against a fake server on a free port.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F28 | llama-server runs, but it serves a model that is not Saluki. | `saluki().probe()` returns code `model_not_found`, names the model it found, and gives the command that starts Saluki. | "saluki wrong model" |
+| F29 | Ollama runs, but the model is not pulled. | `probe()` returns code `model_not_found` with the `ollama pull` command. A model named without a tag matches `<name>:latest`. | "ollama not pulled" |
+| F30 | llama-server serves one model under any name. | `llamaServer().probe()` does not check the model name. | "llama-server any name" |
+| F31 | Saluki thinks for a long time before a tool call. | `saluki()` turns thinking off and sets temperature 0 by default, as the model card says for tool calls. `thinking: true` uses the card's thinking settings. | "saluki settings" |
+| F32 | No local server is running. | Each preset's probe returns `unreachable` with the start command in the reason. | "preset down" |

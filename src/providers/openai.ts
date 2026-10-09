@@ -26,6 +26,8 @@ export interface OpenAICompatibleOptions {
    * a RegExp = one id must match, false = do not check. Default true.
    */
   checkModel?: boolean | RegExp;
+  /** Added to the reason of a failed probe, for example the command that starts the server. */
+  hint?: string;
   /** Default 120000 for chat and embed. probe() always uses 3000. */
   timeoutMs?: number;
 }
@@ -163,6 +165,7 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
         const failed = error as { code?: string; message?: string };
         last = { ok: false, code: failed.code ?? "unreachable", where: baseURL, reason: failed.message ?? String(error) };
       }
+      if (!last.ok && options.hint) last.reason = `${last.reason} ${options.hint}`;
       return last;
     },
 
