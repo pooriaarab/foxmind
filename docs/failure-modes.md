@@ -86,7 +86,7 @@ Tests: `tests/anthropic.test.ts`, against a fake Messages API server.
 
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
-| F33 | System messages are in the wrong place. | Leading system messages become the top-level `system`. Later ones stay in place. | "request shape" |
+| F33 | System messages are in the wrong place. | Leading system messages become the top-level `system`. Later ones join it too (see F81). | "request shape" |
 | F34 | Tool results go out as separate user turns. | Consecutive `tool` messages become one user message with one `tool_result` block each. | "request shape" |
 | F35 | A past tool call in the history has arguments that are not JSON. | Throw code `bad_tool_call` before any request goes out. | "bad tool call in history" |
 | F36 | The reply shape does not match. | `tool_use` blocks become `tool_calls` with JSON string arguments. Stop reasons map: `tool_use` to `tool_calls`, `max_tokens` to `length`, `refusal` to `content_filter`. Thinking blocks go back unchanged on the next turn through `provider_data`. | "reply shape", "thinking blocks go back" |
