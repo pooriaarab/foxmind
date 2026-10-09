@@ -18,9 +18,14 @@
     "scripts": ["background.js"],
     "type": "module"
   },
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
   "action": {
     "default_title": "foxmind demo",
-    "default_popup": "popup.html"
+    "default_popup": "panel.html"
+  },
+  "sidebar_action": {
+    "default_title": "foxmind demo",
+    "default_panel": "panel.html"
   },
   "content_scripts": [
     {

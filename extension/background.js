@@ -2,6 +2,7 @@
 // hosts the models, so every view shares one loaded model. Views send it
 // requests with browser.runtime.sendMessage; e2e/run.mjs does the same.
 import { configureRuntime, gliner2, hasWebGPU, purgeModel, transformers, trialML, wllama } from "../src/browser/index.js";
+import { createMind, llamaServer, ollama, saluki } from "../src/index.js";
 
 const providers = new Map();
 
@@ -12,6 +13,49 @@ function provider(message, task = "embed") {
 }
 
 const trial = trialML({ task: "embed" });
+const embedder = transformers({ task: "embed" });
+
+/** The models a local server lists, or why it cannot be reached. */
+async function models(url) {
+  try {
+    const response = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(2000) });
+    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
+    return { ok: true, models: ((await response.json()).data ?? []).map((model) => model.id) };
+  } catch (error) {
+    return { ok: false, reason: `not running (${error.message})` };
+  }
+}
+
+async function tiers() {
+  const [llama, olla] = await Promise.all([models("http://127.0.0.1:8080"), models("http://127.0.0.1:11434")]);
+  const serving = llama.models?.find((id) => /saluki/i.test(id));
+  return {
+    webgpu: await hasWebGPU(),
+    trialml: await trial.probe(),
+    servers: {
+      "llama-server": llama,
+      saluki: serving ? { ok: true, models: [serving] } : { ok: false, reason: llama.ok ? "llama-server serves another model" : "llama-server is not running" },
+      ollama: olla,
+    },
+  };
+}
+
+async function localChat(prompt) {
+  const found = await tiers();
+  const servers = [saluki(), llamaServer()];
+  if (found.servers.ollama.models?.length) servers.push(ollama({ model: found.servers.ollama.models[0] }));
+  // prefer may name only providers that exist: Ollama is left out when it is not running.
+  const prefer = ["saluki", "llama-server", "ollama"].filter((name) => servers.some((server) => server.name === name));
+  const mind = createMind({ providers: servers, prefer });
+  const result = await mind.chat([{ role: "user", content: prompt }], { maxTokens: 200 });
+  return { content: result.message.content, provider: result.provider, tier: result.tier, ms: result.ms, skipped: result.skipped };
+}
+
+async function pair(texts) {
+  const started = Date.now();
+  const [a, b] = await embedder.embed(texts, {});
+  return { similarity: a.reduce((sum, x, i) => sum + x * b[i], 0), where: embedder.status().where, ms: Date.now() - started };
+}
 const entities = gliner2();
 
 const failed = (error) => ({ error: { code: error.code ?? "error", message: error.message } });
@@ -19,6 +63,12 @@ const failed = (error) => ({ error: { code: error.code ?? "error", message: erro
 async function handle(message) {
   if (message.remoteHost) configureRuntime({ remoteHost: message.remoteHost });
   switch (message.op) {
+    case "tiers":
+      return tiers();
+    case "local-chat":
+      return localChat(message.prompt);
+    case "pair":
+      return pair(message.texts);
     case "env":
       return { crossOriginIsolated: globalThis.crossOriginIsolated, sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined", webgpuAdapter: await hasWebGPU(), userAgent: navigator.userAgent };
     case "probe":
