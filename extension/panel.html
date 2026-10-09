@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>foxmind demo</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header>
+      <h1>foxmind</h1>
+      <p>Which model tiers work here, and a test of each.</p>
+    </header>
+
+    <section aria-labelledby="tiers-title">
+      <h2 id="tiers-title">Tiers</h2>
+      <table id="tiers">
+        <tbody>
+          <tr data-row="webgpu"><th>Browser</th><td>WebGPU</td><td class="state">…</td></tr>
+          <tr data-row="trialml"><th>Browser</th><td>Firefox trial ML</td><td class="state">…</td></tr>
+          <tr data-row="llama-server"><th>Local</th><td>llama-server :8080</td><td class="state">…</td></tr>
+          <tr data-row="saluki"><th>Local</th><td>Saluki 27B</td><td class="state">…</td></tr>
+          <tr data-row="ollama"><th>Local</th><td>Ollama :11434</td><td class="state">…</td></tr>
+          <tr data-row="cloud"><th>Cloud</th><td>Your own key</td><td class="state">Pass it in code. This demo does not ask for one.</td></tr>
+        </tbody>
+      </table>
+      <button id="allow-trialml" type="button" hidden>Allow trial ML</button>
+    </section>
+
+    <section aria-labelledby="chat-title">
+      <h2 id="chat-title">Test prompt (local server)</h2>
+      <textarea id="prompt" rows="2">Say hello in five words.</textarea>
+      <button id="run" type="button">Run</button>
+      <output id="chat-result"></output>
+    </section>
+
+    <section aria-labelledby="embed-title">
+      <h2 id="embed-title">Embedding (in the browser)</h2>
+      <input id="text-a" value="A cat sleeps on the sofa." aria-label="First sentence" />
+      <input id="text-b" value="A kitten naps on the couch." aria-label="Second sentence" />
+      <button id="embed" type="button">Compare</button>
+      <output id="embed-result"></output>
+    </section>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
