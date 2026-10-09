@@ -32,7 +32,10 @@ export interface Tool {
 
 export interface CallOptions {
   signal?: AbortSignal;
-  /** Stop the call after this many milliseconds. */
+  /**
+   * The longest wait, in milliseconds, for the response headers and then for
+   * each next piece of the body. A stream that keeps sending is never cut.
+   */
   timeoutMs?: number;
 }
 
