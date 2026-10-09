@@ -3,12 +3,14 @@
 // artifacts/e2e-<date>.json with every check and timing.
 // Usage: pnpm e2e [--headed]. Env: FIREFOX (the Firefox binary).
 import { launch, writeArtifact } from "create-foxkit/e2e";
+import { readFileSync } from "node:fs";
 import { startHub } from "./hub.mjs";
 
 const record = { startedAt: new Date().toISOString(), checks: [], timings: {} };
 const check = (name, ok, actual) => record.checks.push({ name, ok: Boolean(ok), actual });
 const MODEL = "Xenova/all-MiniLM-L6-v2";
 const cosine = (a, b) => a.reduce((sum, x, i) => sum + x * b[i], 0);
+const best = (scores) => Object.entries(scores).toSorted((a, b) => b[1] - a[1])[0][0];
 
 const hub = await startHub();
 let fox;
@@ -99,8 +101,40 @@ try {
     record.timings.chatToolCallMs = weather.ms;
     check("in-browser chat: Qwen3-0.6B calls a tool (F55)", weather.reply?.message?.tool_calls?.[0]?.function?.name === "get_weather", weather.reply?.message ?? weather.error);
     record.chatWhere = weather.status?.where;
+
+    const reference = JSON.parse(readFileSync("e2e/gliner2-reference.json", "utf8")).cases;
+    const started = Date.now();
+    const load = ask({ op: "gliner2", step: "load" });
+    let progress = 0;
+    while (Date.now() - started < 600_000) {
+      const status = await ask({ op: "gliner2", step: "status" });
+      progress = Math.max(progress, status.progress ?? 0);
+      if (status.state === "ready" || status.state === "error") break;
+      await new Promise((done) => setTimeout(done, 1000));
+    }
+    const loaded = await load;
+    record.timings.gliner2LoadMs = Date.now() - started;
+    check("gliner2: loads, and progress moves during the download (F61)", !loaded.error && progress > 0, loaded.error ?? { progress });
+    const mismatches = [];
+    for (const c of reference) {
+      const got = await ask({ op: "gliner2", step: c.kind, text: c.text, labels: c.labels });
+      if (got.error) mismatches.push({ text: c.text, error: got.error });
+      else if (c.kind === "extract") {
+        for (const [label, want] of Object.entries(c.result.entities ?? {})) {
+          const texts = (got.result[label] ?? []).map((e) => e.text);
+          if (JSON.stringify(texts) !== JSON.stringify(want.map((e) => e.text))) mismatches.push({ text: c.text, label, got: texts, want: want.map((e) => e.text) });
+        }
+      } else {
+        if (best(got.result) !== best(c.result)) mismatches.push({ text: c.text, got: best(got.result), want: best(c.result) });
+      }
+      record.timings[`gliner2_${c.kind}LastMs`] = got.ms;
+    }
+    check("gliner2 matches Python on every reference case (F62)", mismatches.length === 0, { cases: reference.length, mismatches, where: loaded.status?.where });
+    const empty = await ask({ op: "gliner2", step: "extract", text: "", labels: { place: undefined } });
+    const none = await ask({ op: "gliner2", step: "extract", text: "Paris", labels: {} });
+    check("gliner2 edge cases: empty text, no labels (F63)", !empty.error && none.result && Object.keys(none.result).length === 0, { empty, none });
   } else {
-    record.skipped = [...(record.skipped ?? []), "in-browser chat (Qwen3-0.6B, about 0.5 GB): set FOXMIND_E2E_HEAVY=1 to run it (F55)"];
+    record.skipped = [...(record.skipped ?? []), "in-browser chat (Qwen3-0.6B, about 0.5 GB) and GLiNER2 (614 MB): set FOXMIND_E2E_HEAVY=1 to run them (F55, F61-F63)"];
   }
 } catch (error) {
   record.error = error instanceof Error ? error.stack ?? error.message : String(error);

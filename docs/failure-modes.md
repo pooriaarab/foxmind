@@ -143,3 +143,15 @@ proxy to Hugging Face that can cut a download in half.
 | F58 | Firefox allows one engine per extension, and a second `trialML()` asks for another task or model. | Throw code `unsupported` that names the provider that holds the engine. | "one engine" |
 | F59 | The engine returns a shape foxmind does not expect. | Turn nested arrays and tensor-like objects into one vector per text. Throw `bad_response` for anything else. | "trial.ml embed" |
 | F60 | Firefox drops the engine when memory is low. | Throw code `out_of_memory`. Firefox makes a new engine on the next call. | none: no test machine runs out of memory on demand |
+
+## GLiNER2 (`gliner2`)
+
+GLiNER2 extracts entities and scores labels on one ONNX graph. The code comes
+from foxpilot (MIT, same author). Tests: `e2e/run.mjs`.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F61 | The model is 614 MB, too big to download in every CI run. | `e2e/run.mjs` runs it only when `FOXMIND_E2E_HEAVY=1`. The artifact says which checks ran. `status().progress` moves during the download. | "gliner2" (heavy) |
+| F62 | The JavaScript port drifts from the Python gliner2 library. | Extraction finds the same spans as the Python reference (`e2e/gliner2-reference.json`, from foxpilot), and the top label of each classification is the same. | "gliner2 matches Python" (heavy) |
+| F63 | The text is empty, or there are no labels. | Empty text works (the encoder uses "."). No labels returns `{}` and does not run the model. | "gliner2 edge cases" (heavy) |
+| F64 | ONNX Runtime has no WebGPU device when outputs sit on the GPU. | Throw a clear error. On WASM, outputs are on the CPU and need no read back. | covered by the WASM run in "gliner2" |
