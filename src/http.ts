@@ -33,12 +33,18 @@ export function failure(origin: Origin, code: ConstructorParameters<typeof Foxmi
   });
 }
 
-/** Map an exception from fetch or a body read to a FoxmindError. */
-export function fetchFailure(origin: Origin, error: unknown, timedOut: boolean, url: string, timeoutMs: number): FoxmindError {
+/**
+ * Map an exception from fetch or a body read to a FoxmindError. When a stream
+ * was running, a dropped connection is `stream_interrupted` and the error
+ * keeps the text streamed so far.
+ */
+export function fetchFailure(origin: Origin, error: unknown, timedOut: boolean, url: string, timeoutMs: number, partial?: string): FoxmindError {
   if (error instanceof FoxmindError) return error;
-  if (timedOut) return failure(origin, "timeout", `No answer from ${url} within ${timeoutMs} ms.`);
-  if (error instanceof Error && error.name === "AbortError") return failure(origin, "aborted", "The caller stopped the call.");
+  const details = partial === undefined ? {} : { partial };
+  if (timedOut) return failure(origin, "timeout", `No answer from ${url} within ${timeoutMs} ms.`, details);
+  if (error instanceof Error && error.name === "AbortError") return failure(origin, "aborted", "The caller stopped the call.", details);
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error);
+  if (partial !== undefined) return failure(origin, "stream_interrupted", `The stream from ${url} stopped after ${partial.length} characters: ${cause}`, details);
   return failure(origin, "unreachable", `Cannot reach ${url}: ${cause}`);
 }
 
@@ -81,14 +87,14 @@ export async function httpFailure(origin: Origin, response: Response): Promise<F
 export interface Fetched {
   response: Response;
   /** Map an error from reading the body (a timeout, a dropped connection) to a FoxmindError. */
-  fail(error: unknown): FoxmindError;
+  fail(error: unknown, partial?: string): FoxmindError;
   json<T>(): Promise<T>;
 }
 
 /** fetch() that returns an ok response or throws a FoxmindError. */
 export async function call(origin: Origin, url: string, request: Request, fallbackMs: number): Promise<Fetched> {
   const { signal, timedOut } = deadline(request, fallbackMs);
-  const fail = (error: unknown) => fetchFailure(origin, error, timedOut(), url, request.timeoutMs ?? fallbackMs);
+  const fail = (error: unknown, partial?: string) => fetchFailure(origin, error, timedOut(), url, request.timeoutMs ?? fallbackMs, partial);
   let response: Response;
   try {
     response = await fetch(url, {
