@@ -123,3 +123,11 @@ proxy to Hugging Face that can cut a download in half.
 | F50 | The model id does not exist on the hub. | Throw code `model_not_found`. | "wrong model id" |
 | F51 | The model needs more memory than the device has. | Throw code `out_of_memory` with a hint to use a smaller model or dtype. No automatic test: no test machine runs out of memory on demand. The mapping is in `src/browser/runtime.ts`. | none (see text) |
 | F52 | A second load starts while the first one runs. | Both calls wait for the same load. The model downloads once. | "one download" |
+
+## In-browser chat (`transformers({ task: "chat" })`)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F53 | A small model writes a tool call (`<tool_call>…</tool_call>`) whose JSON is broken or cut off. | Throw code `bad_tool_call` with the tool name when the text has one. | `tests/toolcalls.test.ts` |
+| F54 | A Qwen3 model thinks out loud before it answers. | Thinking is off by default. A `<think>` block that still comes moves to `message.reasoning`. | `tests/toolcalls.test.ts` |
+| F55 | The chat model is about 0.5 GB, too big to download in every CI run. | `e2e/run.mjs` runs it only when `FOXMIND_E2E_HEAVY=1`, and the artifact says which checks ran and which it skipped. | `e2e/run.mjs` "in-browser chat" |

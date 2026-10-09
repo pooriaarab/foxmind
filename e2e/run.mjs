@@ -67,6 +67,19 @@ try {
   } else {
     check("webgpu missing: probe says webgpu_missing (F46)", gpu.ok === false && gpu.code === "webgpu_missing", gpu);
   }
+
+  if (process.env.FOXMIND_E2E_HEAVY === "1") {
+    const tools = [{ type: "function", function: { name: "get_weather", description: "Get the weather for a city", parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } } }];
+    const hello = await ask({ op: "chat", id: "qwen", messages: [{ role: "user", content: "Say hello in three words." }] });
+    record.timings.chatColdMs = hello.ms;
+    check("in-browser chat: Qwen3-0.6B answers (F55)", typeof hello.reply?.message?.content === "string" && hello.reply.message.content.length > 0, hello.reply?.message ?? hello.error);
+    const weather = await ask({ op: "chat", id: "qwen", tools, messages: [{ role: "user", content: "Use the get_weather tool to get the weather in Paris." }] });
+    record.timings.chatToolCallMs = weather.ms;
+    check("in-browser chat: Qwen3-0.6B calls a tool (F55)", weather.reply?.message?.tool_calls?.[0]?.function?.name === "get_weather", weather.reply?.message ?? weather.error);
+    record.chatWhere = weather.status?.where;
+  } else {
+    record.skipped = [...(record.skipped ?? []), "in-browser chat (Qwen3-0.6B, about 0.5 GB): set FOXMIND_E2E_HEAVY=1 to run it (F55)"];
+  }
 } catch (error) {
   record.error = error instanceof Error ? error.stack ?? error.message : String(error);
 } finally {

@@ -5,9 +5,9 @@ import { configureRuntime, hasWebGPU, purgeModel, transformers } from "../src/br
 
 const providers = new Map();
 
-function provider(message) {
+function provider(message, task = "embed") {
   const key = message.id ?? message.model;
-  if (!providers.has(key)) providers.set(key, transformers({ task: "embed", model: message.model, device: message.device ?? "auto" }));
+  if (!providers.has(key)) providers.set(key, transformers({ task, model: message.model, device: message.device ?? "auto" }));
   return providers.get(key);
 }
 
@@ -24,6 +24,14 @@ async function handle(message) {
       const chosen = provider(message);
       try {
         return { vectors: await chosen.embed(message.texts, {}), status: chosen.status() };
+      } catch (error) {
+        return { ...failed(error), status: chosen.status() };
+      }
+    }
+    case "chat": {
+      const chosen = provider(message, "chat");
+      try {
+        return { reply: await chosen.chat(message.messages, { tools: message.tools }), status: chosen.status() };
       } catch (error) {
         return { ...failed(error), status: chosen.status() };
       }
