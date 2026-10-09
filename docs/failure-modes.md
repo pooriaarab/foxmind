@@ -213,3 +213,9 @@ Storage and a fake WebGPU adapter, and a fake `open()` that fails on purpose.
 | F78 | A cached model fails on WebGPU for a GPU reason. The loader called that cache corruption, deleted the files (614 MB for GLiNER2), downloaded them again, failed again on WebGPU, and never tried WASM. | With `device: "auto"`, try WASM first. Keep the cache. Say in `status().reason` that WebGPU failed. | "webgpu fails, wasm works, cache kept" |
 | F79 | The cached files really are broken (a parse error on both devices). | Delete the files only after both devices fail, download once more, and say so. | "both fail, then repair" |
 | F80 | `device: "webgpu"` (no second device) fails for a reason that does not point at the files. | Throw `bad_response`. Do not delete the cache. Delete it only for an error that points at the files (a parse error). | "explicit webgpu keeps the cache" |
+
+## Anthropic: system messages later in the chat (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F81 | A system message after the first turn went into `messages` with role `system`. Many Anthropic models answer that with 400. | Join every system message, in order, into the top-level `system`. This replaces the "later ones stay in place" part of F33. | `tests/anthropic.test.ts` "request shape" |
