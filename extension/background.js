@@ -1,7 +1,7 @@
 // The demo's background page (an event page with a DOM in Firefox MV3). It
 // hosts the models, so every view shares one loaded model. Views send it
 // requests with browser.runtime.sendMessage; e2e/run.mjs does the same.
-import { configureRuntime, hasWebGPU, purgeModel, transformers, trialML } from "../src/browser/index.js";
+import { configureRuntime, gliner2, hasWebGPU, purgeModel, transformers, trialML } from "../src/browser/index.js";
 
 const providers = new Map();
 
@@ -12,6 +12,7 @@ function provider(message, task = "embed") {
 }
 
 const trial = trialML({ task: "embed" });
+const entities = gliner2();
 
 const failed = (error) => ({ error: { code: error.code ?? "error", message: error.message } });
 
@@ -45,6 +46,16 @@ async function handle(message) {
         return { vectors: await trial.embed(message.texts, {}), status: trial.status() };
       } catch (error) {
         return { ...failed(error), status: trial.status() };
+      }
+    }
+    case "gliner2": {
+      try {
+        if (message.step === "status") return entities.status();
+        if (message.step === "load") return { loaded: await entities.load(), status: entities.status() };
+        if (message.step === "extract") return { result: await entities.extract(message.text, message.labels, {}) };
+        return { result: (await entities.classify([message.text], "referenced", message.labels, {}))[0] };
+      } catch (error) {
+        return { ...failed(error), status: entities.status() };
       }
     }
     case "corrupt": {
