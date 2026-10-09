@@ -169,3 +169,15 @@ in a second Firefox, because Firefox allows one trial ML engine per extension.
 | F66 | The model is not in an org trial ML allows (Mozilla, Xenova on Hugging Face). | `probe()` returns code `unsupported` and names the rule. | "hub rule" |
 | F67 | The llama.cpp backend returns text in a shape we do not expect. | Accept a string, `{ finalOutput }`, `{ output }` or `[{ generated_text }]`. Throw `bad_response` for anything else. | none yet: in our test runs the engine never answered (F68) |
 | F68 | The engine never answers. In the Firefox 157 test profile, llama.cpp `runEngine` hangs after `createEngine` works. | Stop the call after `timeoutMs` (default 120 s) and throw code `timeout`. | "tiny GGUF" |
+
+## Demo panel (`extension/panel.html`)
+
+The demo runs as the toolbar popup and in the sidebar. The models live in the
+background page, so every view shares them. Tests: `e2e/run.mjs` "demo panel".
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F69 | The panel shows a tier as working when it is not, or the reverse. | The panel's rows for Ollama (11434) and llama-server (8080) match what `foxmind doctor` finds on the same machine at the same time. | "demo panel rows match doctor" |
+| F70 | No local server runs, and the user clicks Run. | The panel shows code `no_provider` and why each provider was skipped. When a server runs, it shows the answer and which provider and tier answered. | "demo panel test prompt" |
+| F72 | Ollama refuses the extension's origin with 403 (it allows `moz-extension://` only when `OLLAMA_ORIGINS` says so). | Throw code `auth` with the fix: start Ollama with `OLLAMA_ORIGINS=moz-extension://*`. | "demo panel test prompt" |
+| F71 | The embedding test runs on a device the panel does not name. | The panel shows the similarity, the device (`webgpu` or `wasm`) and the time. | "demo panel embedding" |
