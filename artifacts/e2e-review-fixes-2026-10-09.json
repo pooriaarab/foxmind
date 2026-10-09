@@ -1,0 +1,333 @@
+{
+  "startedAt": "2026-10-09T06:00:32.677Z",
+  "checks": [
+    {
+      "name": "foxmind doctor --json sees the same servers",
+      "ok": true,
+      "actual": [
+        "ollama:true",
+        "llama-server:true",
+        "saluki:false",
+        "lm-studio:false"
+      ]
+    },
+    {
+      "name": "ollama: chat answers and names its tier",
+      "ok": true,
+      "actual": {
+        "content": "1. Hello!  \n2. Goodbye!  \n3. Yawn!",
+        "provider": "ollama"
+      }
+    },
+    {
+      "name": "ollama: tool call has valid JSON arguments",
+      "ok": true,
+      "actual": [
+        {
+          "id": "call_g606gbzd",
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "arguments": "{\"city\":\"Paris\"}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ollama: stream pieces join to the reply",
+      "ok": true,
+      "actual": {
+        "pieces": 10
+      }
+    },
+    {
+      "name": "ollama: json mode returns JSON",
+      "ok": true,
+      "actual": "{\"ok\": true}"
+    },
+    {
+      "name": "llama-server: chat answers and names its tier",
+      "ok": true,
+      "actual": {
+        "content": "Good morning! 🌸",
+        "provider": "llama-server"
+      }
+    },
+    {
+      "name": "llama-server: tool call has valid JSON arguments",
+      "ok": true,
+      "actual": [
+        {
+          "id": "2FKpsNcmioUeyPwh5jQeDg5Igvvkkilq",
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "arguments": "{\"city\": \"Paris\"}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "llama-server: stream pieces join to the reply",
+      "ok": true,
+      "actual": {
+        "pieces": 10
+      }
+    },
+    {
+      "name": "llama-server: json mode returns JSON",
+      "ok": true,
+      "actual": "{\"ok\": true}"
+    },
+    {
+      "name": "no SharedArrayBuffer in the extension page (F47)",
+      "ok": true,
+      "actual": {
+        "crossOriginIsolated": false,
+        "sharedArrayBuffer": false,
+        "webgpuAdapter": false,
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0",
+        "ms": 11
+      }
+    },
+    {
+      "name": "download cut gives download_failed (F48)",
+      "ok": true,
+      "actual": {
+        "code": "download_failed",
+        "message": "transformers-embed (browser): The download of Xenova/all-MiniLM-L6-v2 stopped: Error in input stream. Call again to download it again."
+      }
+    },
+    {
+      "name": "download again works after a cut (F48)",
+      "ok": true,
+      "actual": {
+        "dims": 384,
+        "where": "wasm"
+      }
+    },
+    {
+      "name": "embedding: kitten is nearer to cat than truck",
+      "ok": true,
+      "actual": {
+        "kitten": 0.7130574383045986,
+        "truck": 0.09183057260375506
+      }
+    },
+    {
+      "name": "auto device runs and reports where (F46)",
+      "ok": true,
+      "actual": {
+        "name": "transformers-embed",
+        "tier": "browser",
+        "model": "Xenova/all-MiniLM-L6-v2",
+        "capabilities": [
+          "embed"
+        ],
+        "state": "ready",
+        "where": "wasm",
+        "progress": 1,
+        "reason": "WebGPU is missing, so it runs on WASM."
+      }
+    },
+    {
+      "name": "one download for two calls at once, served from cache (F52)",
+      "ok": true,
+      "actual": {
+        "onnxFetches": 0
+      }
+    },
+    {
+      "name": "cache corrupt: purge, download again, and say so (F49)",
+      "ok": true,
+      "actual": {
+        "changed": 4,
+        "reason": "Repaired: deleted 4 cached files of Xenova/all-MiniLM-L6-v2 that did not load, and downloaded them again."
+      }
+    },
+    {
+      "name": "wrong model id gives model_not_found (F50)",
+      "ok": true,
+      "actual": {
+        "code": "model_not_found",
+        "message": "transformers-embed (browser): The hub has no Xenova/foxmind-no-such-model, or it is private: Unauthorized access to file: \"http://127.0.0.1:61357/Xenova/foxmind-no-such-model/resolve/main/config.json\"."
+      }
+    },
+    {
+      "name": "webgpu missing: probe says webgpu_missing (F46)",
+      "ok": true,
+      "actual": {
+        "ok": false,
+        "code": "webgpu_missing",
+        "reason": "This browser gives no WebGPU adapter (Firefox has none on Linux, Intel Macs and Android). Use device \"auto\" or \"wasm\".",
+        "ms": 2
+      }
+    },
+    {
+      "name": "demo panel rows match doctor (F69)",
+      "ok": true,
+      "actual": {
+        "rows": {
+          "webgpu": "false",
+          "trialml": "false",
+          "llama-server": "true",
+          "saluki": "false",
+          "ollama": "true"
+        },
+        "expected": {
+          "ollama": "true",
+          "llama-server": "true"
+        }
+      }
+    },
+    {
+      "name": "demo panel test prompt (F70)",
+      "ok": true,
+      "actual": "Ready.\n\nanswered by llama-server (local) in 75 ms; skipped saluki (model_not_found)"
+    },
+    {
+      "name": "demo panel embedding (F71)",
+      "ok": true,
+      "actual": "similarity 0.755 on wasm in 190 ms"
+    },
+    {
+      "name": "trial.ml before the grant: probe says permission (F57)",
+      "ok": true,
+      "actual": {
+        "ok": false,
+        "code": "permission",
+        "reason": "The optional \"trialML\" permission is not granted. Call requestTrialML() from a click.",
+        "ms": 9
+      }
+    },
+    {
+      "name": "trial.ml embed: 384 numbers per text, kitten nearer cat (F59)",
+      "ok": true,
+      "actual": {
+        "dims": 384,
+        "status": {
+          "name": "trialml-embed",
+          "tier": "browser",
+          "model": "Xenova/all-MiniLM-L6-v2",
+          "capabilities": [
+            "embed"
+          ],
+          "where": "trial.ml (wasm)",
+          "state": "ready",
+          "progress": 1
+        }
+      }
+    },
+    {
+      "name": "one engine: a second trialML() is refused (F58)",
+      "ok": true,
+      "actual": {
+        "code": "unsupported",
+        "message": "trialml-embed (browser): Firefox allows one trial.ml engine per extension, and trialml-embed holds it (embed:Xenova/all-MiniLM-L6-v2::wasm)."
+      }
+    },
+    {
+      "name": "saluki in the browser: refused before download (F65)",
+      "ok": true,
+      "actual": {
+        "ok": false,
+        "code": "out_of_memory",
+        "reason": "Underdog-Saluki-27B-1.0-IQ2-mix.gguf is 7.90 GB, more than the 4.00 GB limit (maxBytes) for a model in the browser. Run it on a local server instead.",
+        "ms": 279
+      }
+    },
+    {
+      "name": "hub rule: a model outside Mozilla and Xenova is refused (F66)",
+      "ok": true,
+      "actual": {
+        "ok": false,
+        "code": "unsupported",
+        "reason": "trial.ml takes models only from the Mozilla and Xenova orgs on Hugging Face (or the Mozilla hub), not ggml-org/models.",
+        "ms": 307
+      }
+    },
+    {
+      "name": "tiny GGUF: text, or code timeout when the engine never answers (F67, F68)",
+      "ok": true,
+      "actual": {
+        "code": "timeout",
+        "message": "wllama (browser): No answer within 30000 ms."
+      }
+    }
+  ],
+  "timings": {
+    "coldLoadAndEmbedMs": 934,
+    "warmLoadAndEmbedMs": 206,
+    "loadedEmbedMs": 12,
+    "trialMlColdEmbedMs": 2345,
+    "trialMlWarmEmbedMs": 13,
+    "wllamaTinyChatMs": 31315
+  },
+  "localServers": [
+    {
+      "name": "ollama",
+      "ok": true,
+      "models": [
+        "qwen3-vl:2b",
+        "qwen3:0.6b"
+      ]
+    },
+    {
+      "name": "llama-server",
+      "ok": true,
+      "models": [
+        "qwen3-0.6b.gguf"
+      ]
+    },
+    {
+      "name": "saluki",
+      "ok": false
+    },
+    {
+      "name": "lm-studio",
+      "ok": false
+    }
+  ],
+  "node": {
+    "ran": [
+      "ollama (qwen3:0.6b)",
+      "llama-server"
+    ],
+    "skipped": [
+      "saluki",
+      "lm-studio"
+    ],
+    "timings": {
+      "ollamaChatMs": 116421,
+      "ollamaToolCallMs": 235,
+      "ollamaStreamMs": 142,
+      "llama-serverChatMs": 734,
+      "llama-serverToolCallMs": 1515,
+      "llama-serverStreamMs": 311
+    }
+  },
+  "firefox": "firefox/157.0.1",
+  "env": {
+    "crossOriginIsolated": false,
+    "sharedArrayBuffer": false,
+    "webgpuAdapter": false,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0",
+    "ms": 11
+  },
+  "panel": {
+    "rows": {
+      "webgpu": "false",
+      "trialml": "false",
+      "llama-server": "true",
+      "saluki": "false",
+      "ollama": "true"
+    },
+    "said": "Ready.\n\nanswered by llama-server (local) in 75 ms; skipped saluki (model_not_found)",
+    "similar": "similarity 0.755 on wasm in 190 ms"
+  },
+  "skipped": [
+    "in-browser chat (Qwen3-0.6B, about 0.5 GB) and GLiNER2 (614 MB): set FOXMIND_E2E_HEAVY=1 to run them (F55, F61-F63)"
+  ],
+  "wllama": "timeout",
+  "passed": true
+}

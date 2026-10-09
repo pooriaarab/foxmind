@@ -217,6 +217,12 @@ headless, so WASM; all 32 checks passed):
 | GLiNER2 against the Python gliner2 library | 14 of 14 reference cases match |
 | Saluki 27B in the browser | refused before download: 7.90 GB is over the 4 GB limit |
 
+After the review fixes (redirects, aborts, `only`, idle timeouts, the release
+build), we ran `pnpm e2e` again without the heavy models:
+`artifacts/e2e-review-fixes-2026-10-09.json`, 27 of 27 checks passed. The heavy
+run was not repeated after the fixes: the test machine was under heavy load from
+other jobs, and the in-browser Qwen3 call passed the test's 180 s limit.
+
 ## Firefox APIs used
 
 | API | MDN | Why |
