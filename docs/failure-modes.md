@@ -38,3 +38,15 @@ Tests: `tests/openai.test.ts`, against a fake OpenAI-compatible server.
 | F13 | The server answers 200 with a body that has no `choices`. | Throw code `bad_response`. | "bad response" |
 | F14 | `embed()` gets a different number of vectors than texts. | Throw code `bad_response`. | "embed count" |
 | F15 | The provider object or its status is logged. | The API key is not in `JSON.stringify(provider)`, `util.inspect(provider)` or `status()`. | "key leak" |
+
+## Streaming (`onDelta`)
+
+Tests: `tests/stream.test.ts`, against a fake server that sends server-sent events.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F16 | The server goes down in the middle of a stream. | Throw code `stream_interrupted` with the text streamed so far in `partial`. | "server down mid-stream" |
+| F17 | The stream ends with no `[DONE]` and no `finish_reason`. | Throw code `stream_interrupted`. A clean end with a `finish_reason` but no `[DONE]` is a success. | "stream ends early" |
+| F18 | The server sends an error event inside a 200 stream. | Throw code `http` with the server's message. | "error event" |
+| F19 | Tool call pieces arrive across many events, and the result is not valid JSON. | Join the pieces by index. Throw code `bad_tool_call` when the joined arguments do not parse. | "streamed tool call", "streamed bad tool call" |
+| F20 | The stream stops sending, but the connection stays open. | Throw code `timeout` after `timeoutMs`, with `partial`. | "stalled stream" |

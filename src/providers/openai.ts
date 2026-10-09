@@ -1,7 +1,9 @@
 // Any server that speaks the OpenAI chat completions API: llama.cpp
 // llama-server, Ollama, LM Studio, OpenAI, OpenRouter and many more.
-import { call, failure, type Origin } from "../http.js";
+import { FoxmindError } from "../errors.js";
+import { call, failure, type Fetched, type Origin } from "../http.js";
 import { checkReply } from "../reply.js";
+import { events } from "../sse.js";
 import type { ChatOptions, ChatReply, FinishReason, Message, Probe, Provider, ProviderStatus, Tier, ToolCall } from "../types.js";
 
 export interface OpenAICompatibleOptions {
@@ -29,6 +31,11 @@ export interface OpenAICompatibleOptions {
 }
 
 type WireMessage = { role?: string; content?: string | null; tool_calls?: ToolCall[]; reasoning_content?: string; reasoning?: string };
+type Chunk = {
+  choices?: { delta?: WireMessage & { tool_calls?: (Partial<ToolCall> & { index?: number; function?: Partial<ToolCall["function"]> })[] }; finish_reason?: string | null }[];
+  usage?: Completion["usage"];
+  error?: string | { message?: string };
+};
 type Completion = { choices?: { message?: WireMessage; finish_reason?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
 
 export function finishReason(value: string | null | undefined): FinishReason {
@@ -84,6 +91,59 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
     return { message, finishReason: finishReason(choice.finish_reason), ...(usage ? { usage } : {}) };
   }
 
+  /** Join streamed pieces into one completion, calling onDelta with each piece of text. */
+  async function collect(fetched: Fetched, onDelta: (text: string) => void): Promise<Completion> {
+    const message: WireMessage & { content: string } = { content: "" };
+    const calls: ToolCall[] = [];
+    let finish: string | undefined;
+    let done = false;
+    let usage: Completion["usage"];
+    try {
+      for await (const event of events(fetched.response.body!)) {
+        if (event.data === "[DONE]") {
+          done = true;
+          break;
+        }
+        let chunk: Chunk;
+        try {
+          chunk = JSON.parse(event.data) as Chunk;
+        } catch {
+          throw failure(origin, "bad_response", `The stream sent data that is not JSON: ${event.data.slice(0, 120)}`, { partial: message.content });
+        }
+        if (chunk.error) {
+          const said = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+          throw failure(origin, "http", `The server sent an error in the stream: ${said ?? event.data}`, { partial: message.content });
+        }
+        usage = chunk.usage ?? usage;
+        const choice = chunk.choices?.[0];
+        const delta = choice?.delta ?? {};
+        if (delta.content) {
+          message.content += delta.content;
+          onDelta(delta.content);
+        }
+        const thought = delta.reasoning_content ?? delta.reasoning;
+        if (thought) message.reasoning_content = (message.reasoning_content ?? "") + thought;
+        for (const piece of delta.tool_calls ?? []) {
+          const slot = (calls[piece.index ?? 0] ??= { id: "", type: "function", function: { name: "", arguments: "" } });
+          if (piece.id) slot.id = piece.id;
+          slot.function.name += piece.function?.name ?? "";
+          slot.function.arguments += piece.function?.arguments ?? "";
+        }
+        finish = choice?.finish_reason ?? finish;
+      }
+    } catch (error) {
+      if (error instanceof FoxmindError) throw error;
+      // A connection that drops after the server said it was done lost nothing.
+      if (!finish) throw fetched.fail(error, message.content);
+    }
+    if (!done && !finish) throw failure(origin, "stream_interrupted", "The stream ended before the server said it was done.", { partial: message.content });
+    const toolCalls = calls.filter(Boolean);
+    return {
+      choices: [{ message: { ...message, content: message.content || (toolCalls.length ? null : ""), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: finish }],
+      ...(usage ? { usage } : {}),
+    };
+  }
+
   return {
     name,
     tier,
@@ -120,8 +180,10 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
 
     async chat(messages, chat) {
       const url = `${baseURL}/chat/completions`;
-      const fetched = await call(origin, url, { ...chat, headers, body: request(messages, chat, false) }, timeout);
-      return checkReply(origin, reply(await fetched.json<Completion>()), chat.json);
+      const stream = chat.onDelta !== undefined;
+      const fetched = await call(origin, url, { ...chat, headers, body: request(messages, chat, stream) }, timeout);
+      const data = chat.onDelta ? await collect(fetched, chat.onDelta) : await fetched.json<Completion>();
+      return checkReply(origin, reply(data), chat.json);
     },
 
     async embed(texts, embed) {
