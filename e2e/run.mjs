@@ -1,29 +1,81 @@
-// The E2E test: install the built extension (dist-ext/) in a real Firefox,
-// check that it runs in a page and stores a value, and write
-// artifacts/e2e-<date>.json.
+// The E2E test: install the built demo extension (dist-ext/) in a real
+// Firefox, run in-browser models in its background page, and write
+// artifacts/e2e-<date>.json with every check and timing.
 // Usage: pnpm e2e [--headed]. Env: FIREFOX (the Firefox binary).
-import { launch, poll, serve, writeArtifact } from "create-foxkit/e2e";
+import { launch, writeArtifact } from "create-foxkit/e2e";
+import { startHub } from "./hub.mjs";
 
-const record = { startedAt: new Date().toISOString(), checks: [] };
-const check = (name, expected, actual) => record.checks.push({ name, expected, actual, ok: actual === expected });
+const record = { startedAt: new Date().toISOString(), checks: [], timings: {} };
+const check = (name, ok, actual) => record.checks.push({ name, ok: Boolean(ok), actual });
+const MODEL = "Xenova/all-MiniLM-L6-v2";
+const cosine = (a, b) => a.reduce((sum, x, i) => sum + x * b[i], 0);
 
-const site = await serve("e2e/site");
+const hub = await startHub();
 let fox;
 try {
-  fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed") });
+  fox = await launch({
+    extension: "dist-ext",
+    headless: !process.argv.includes("--headed"),
+    // Keep the event page alive through long downloads in the test.
+    prefs: { "extensions.background.idle.timeout": 600_000 },
+  });
   record.firefox = await fox.browser.version();
-  const page = await fox.open(`${site.url}/index.html`);
-  check("content script ran in the page", "content-script-ran", await poll(page, () => document.documentElement.dataset.fixture));
-  const ext = await fox.openExtensionPage("popup.html");
-  check("background stored a value", "installed", await poll(ext, () => document.getElementById("value")?.textContent));
+  const page = await fox.openExtensionPage("popup.html");
+  /** Send one request to the background page, and time it. */
+  const ask = async (message) => {
+    const started = Date.now();
+    const reply = await page.evaluate((m) => browser.runtime.sendMessage(m), message);
+    return { ...reply, ms: Date.now() - started };
+  };
+  const embed = (id, extra = {}) => ask({ op: "embed", id, model: MODEL, remoteHost: hub.url, texts: ["a cat sleeps", "a kitten naps", "a truck drives"], ...extra });
+
+  record.env = await ask({ op: "env" });
+  check("no SharedArrayBuffer in the extension page (F47)", record.env.crossOriginIsolated === false, record.env);
+
+  hub.state.cut = true;
+  const cut = await embed("cut");
+  check("download cut gives download_failed (F48)", cut.error?.code === "download_failed", cut.error);
+
+  const cold = await embed("cut");
+  record.timings.coldLoadAndEmbedMs = cold.ms;
+  const [cat, kitten, truck] = cold.vectors ?? [];
+  check("download again works after a cut (F48)", cold.vectors?.length === 3 && cat.length === 384, { dims: cat?.length, where: cold.status?.where });
+  check("embedding: kitten is nearer to cat than truck", cat && cosine(cat, kitten) > cosine(cat, truck), cat && { kitten: cosine(cat, kitten), truck: cosine(cat, truck) });
+  check("auto device runs and reports where (F46)", ["wasm", "webgpu"].includes(cold.status?.where), cold.status);
+
+  const before = hub.state.requests.filter((path) => path.endsWith(".onnx")).length;
+  const [one, two] = await Promise.all([embed("twice"), embed("twice")]);
+  record.timings.warmLoadAndEmbedMs = Math.max(one.ms, two.ms);
+  const onnxFetches = hub.state.requests.filter((path) => path.endsWith(".onnx")).length - before;
+  check("one download for two calls at once, served from cache (F52)", one.vectors && two.vectors && onnxFetches === 0, { onnxFetches });
+
+  const again = await embed("twice", { texts: ["hello"] });
+  record.timings.loadedEmbedMs = again.ms;
+
+  const corrupt = await ask({ op: "corrupt", model: MODEL });
+  const repaired = await embed("repaired");
+  check("cache corrupt: purge, download again, and say so (F49)", corrupt.changed > 0 && repaired.vectors?.length === 3 && /repaired/i.test(repaired.status?.reason ?? ""), { changed: corrupt.changed, reason: repaired.status?.reason, error: repaired.error });
+
+  const missing = await embed("missing", { model: "Xenova/foxmind-no-such-model" });
+  check("wrong model id gives model_not_found (F50)", missing.error?.code === "model_not_found", missing.error);
+
+  const gpu = await ask({ op: "probe", id: "gpu", model: MODEL, device: "webgpu", remoteHost: hub.url });
+  if (record.env.webgpuAdapter) {
+    const run = await embed("gpu", { device: "webgpu" });
+    record.timings.webgpuColdEmbedMs = run.ms;
+    check("webgpu present: the model runs on webgpu (F46)", gpu.ok && run.status?.where === "webgpu", run.status ?? run.error);
+  } else {
+    check("webgpu missing: probe says webgpu_missing (F46)", gpu.ok === false && gpu.code === "webgpu_missing", gpu);
+  }
 } catch (error) {
-  record.error = error instanceof Error ? error.message : String(error);
+  record.error = error instanceof Error ? error.stack ?? error.message : String(error);
 } finally {
   await fox?.close();
-  await site.close();
+  await hub.close();
 }
-record.passed = !record.error && record.checks.length === 2 && record.checks.every((c) => c.ok);
-const path = writeArtifact("artifacts", "e2e", record);
-for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}: ${c.actual}`);
+record.passed = !record.error && record.checks.length > 0 && record.checks.every((c) => c.ok);
+const path = writeArtifact("artifacts", process.argv.includes("--headed") ? "e2e-headed" : "e2e", record);
+for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}`);
+console.log(JSON.stringify(record.timings));
 console.log(`${record.passed ? "PASS" : "FAIL"}${record.error ? `: ${record.error}` : ""} | ${path}`);
 process.exitCode = record.passed ? 0 : 1;

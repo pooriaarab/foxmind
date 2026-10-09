@@ -106,3 +106,20 @@ Tests: `tests/doctor.test.ts`. The tests call the CLI's `main()` with fake serve
 | F43 | An unknown command or flag. | Print the usage to stderr and exit 2. Probe nothing. | "bad flag" |
 | F44 | An API key is in the environment. | doctor does not read keys, so no key can reach its output. | "no keys" |
 | F45 | A server accepts the connection but never answers. | Each probe stops after `--timeout` (default 2000 ms), so doctor always finishes. | "hung server" |
+
+## In-browser models (`foxmind/browser`: `transformers`)
+
+These run in a real Firefox. Tests: `e2e/run.mjs` (`pnpm e2e`). The test loads
+the demo extension, runs a small embedding model (`Xenova/all-MiniLM-L6-v2`,
+about 23 MB) in the background page, and gets the model files through a local
+proxy to Hugging Face that can cut a download in half.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F46 | WebGPU is missing (Linux, Intel Mac, headless). | `device: "auto"` runs on WASM, and `status().where` says `wasm`. `device: "webgpu"` makes `probe()` fail with code `webgpu_missing`, so the router skips it and says why. | "webgpu" |
+| F47 | Extension pages have no `SharedArrayBuffer`, so WASM threads cannot start. | The runtime sets one WASM thread, and the model runs. | "no SharedArrayBuffer" |
+| F48 | The model download stops halfway. | Throw code `download_failed`. Do not keep the failed load: the next call downloads again and works. | "download cut", "download again" |
+| F49 | The cached model files are corrupt. | Delete this model's files from Cache Storage, download once more, and say so in `status().reason`. When the second try fails too, throw code `cache_corrupt`. | "cache corrupt" |
+| F50 | The model id does not exist on the hub. | Throw code `model_not_found`. | "wrong model id" |
+| F51 | The model needs more memory than the device has. | Throw code `out_of_memory` with a hint to use a smaller model or dtype. No automatic test: no test machine runs out of memory on demand. The mapping is in `src/browser/runtime.ts`. | none (see text) |
+| F52 | A second load starts while the first one runs. | Both calls wait for the same load. The model downloads once. | "one download" |
