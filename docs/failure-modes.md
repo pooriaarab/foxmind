@@ -276,6 +276,7 @@ row is a way that the listed build or the submission can go wrong.
 | AR7 | A re-run submits a version that AMO already has as listed | `version-status` says `listed`, and the step skips web-ext sign and finishes the release |
 | AR8 | AMO has the version as unlisted | `version-status` stops and says to bump the version |
 | AR9 | The AMO version lookup fails (401, 500, network) | `version-status` stops; it never guesses `absent` |
+| AR10 | The add-on already exists on AMO, and the version lookup sends a parameter AMO refuses on a single version (400), so every release stops | `version-status` asks for `versions/v<version>/` with no query; an owner sees listed and unlisted versions there |
 | AR10 | The release build keeps `http://localhost/*`, which no code in the add-on calls (it calls only 127.0.0.1:8080 and 127.0.0.1:11434) | The manifest drops it; AR3 stops the check if it comes back without a reason |
 | AR11 | The release build keeps the e2e content script or `e2e/ops.js` | `build-ext.mjs` adds them only with `--e2e`; AR2 and AR4 stop the check otherwise |
 
