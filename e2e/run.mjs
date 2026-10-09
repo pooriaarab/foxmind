@@ -25,7 +25,11 @@ const best = (scores) => Object.entries(scores).toSorted((a, b) => b[1] - a[1])[
 const hub = await startHub();
 // A fake llama-server on :8080 unless a real one runs there, so the demo panel's test prompt always has a server.
 const fakeLlama = await startFakeLlama();
-record.llamaServer = fakeLlama ? `fake (${fakeLlama.model})` : "already running on :8080";
+// Wait until :8080 answers before Firefox starts, and record what it serves.
+const served = await fetch("http://127.0.0.1:8080/v1/models", { signal: AbortSignal.timeout(5000) })
+  .then(async (response) => `${response.status} ${(await response.text()).slice(0, 200)}`)
+  .catch((error) => `no answer: ${error.message}`);
+record.llamaServer = { server: fakeLlama ? `fake (${fakeLlama.model})` : "something already listens on :8080", models: served };
 let fox;
 try {
   fox = await launch({
@@ -206,7 +210,9 @@ try {
 }
 record.passed = !record.error && record.checks.length > 0 && record.checks.every((c) => c.ok);
 const path = writeArtifact("artifacts", process.argv.includes("--headed") ? "e2e-headed" : "e2e", record);
-for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}`);
+// A failed check prints what it saw, so a CI log is enough to see why.
+for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}${c.ok ? "" : `: ${JSON.stringify(c.actual)?.slice(0, 500)}`}`);
+console.log(`llama-server on :8080: ${JSON.stringify(record.llamaServer)}`);
 console.log(JSON.stringify(record.timings));
 console.log(`${record.passed ? "PASS" : "FAIL"}${record.error ? `: ${record.error}` : ""} | ${path}`);
 process.exitCode = record.passed ? 0 : 1;
