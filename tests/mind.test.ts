@@ -125,4 +125,45 @@ describe("createMind", () => {
     const mind = createMind({ providers: [fake("a", "local").provider, fake("b", "cloud").provider] });
     expect(mind.status().providers.map((status) => status.name)).toEqual(["a", "b"]);
   });
+
+  it("abort during a probe (F74)", async () => {
+    const local = fake("slow", "local");
+    let probes = 0;
+    local.provider.probe = (options) => {
+      probes++;
+      // A probe that honors a signal would end here; the router must not pass the caller's one.
+      expect(options?.signal).toBeUndefined();
+      return new Promise((done) => setTimeout(() => done({ ok: true }), 200));
+    };
+    const cloud = fake("cloud", "cloud");
+    const mind = createMind({ providers: [local.provider, cloud.provider] });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+    const error = await failure(mind.chat(hi, { signal: controller.signal }));
+    expect(error.code).toBe("aborted");
+    expect(cloud.calls.probe + cloud.calls.chat).toBe(0);
+    const later = await mind.chat(hi);
+    expect(later.provider).toBe("slow");
+    expect(probes).toBe(2);
+  });
+
+  it("aborted before the call (F74)", async () => {
+    const cloud = fake("cloud", "cloud");
+    const mind = createMind({ providers: [fake("a", "local", { down: true }).provider, cloud.provider] });
+    const controller = new AbortController();
+    controller.abort();
+    expect((await failure(mind.chat(hi, { signal: controller.signal }))).code).toBe("aborted");
+    expect(cloud.calls.chat).toBe(0);
+  });
+
+  it("probe cache after any failure (F75)", async () => {
+    for (const code of ["timeout", "http", "auth", "rate_limited"]) {
+      const a = fake("a", "local");
+      const mind = createMind({ providers: [a.provider] });
+      a.provider.chat = async () => { throw new FoxmindError(code as never, "no", { provider: "a", tier: "local" }); };
+      await failure(mind.chat(hi));
+      await failure(mind.chat(hi));
+      expect(a.calls.probe, code).toBe(2);
+    }
+  });
 });
