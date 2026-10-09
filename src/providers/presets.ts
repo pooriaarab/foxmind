@@ -1,4 +1,5 @@
 // Ready-made settings for the local servers people run on their own machine.
+import { FoxmindError } from "../errors.js";
 import { openaiCompatible, type OpenAICompatibleOptions } from "./openai.js";
 import type { Provider } from "../types.js";
 
@@ -21,13 +22,24 @@ function escape(text: string): string {
 /** Ollama's OpenAI-compatible API. "llama3.2" matches "llama3.2:latest". */
 export function ollama(options: PresetOptions & { model: string }): Provider {
   const tagged = options.model.includes(":") ? escape(options.model) : `${escape(options.model)}(:latest)?`;
-  return openaiCompatible({
+  const provider = openaiCompatible({
     name: "ollama",
     baseURL: "http://127.0.0.1:11434/v1",
     checkModel: new RegExp(`^${tagged}$`),
     hint: `Start Ollama with "ollama serve", then run "ollama pull ${options.model}".`,
     ...options,
   });
+  // Ollama answers 403 to an origin it does not allow, such as moz-extension://.
+  const explain = (error: unknown) => {
+    if (!(error instanceof FoxmindError) || error.status !== 403) return error;
+    return new FoxmindError("auth", 'Ollama refused this origin (HTTP 403). Start it with OLLAMA_ORIGINS="moz-extension://*" to allow Firefox extensions.', { provider: provider.name, tier: provider.tier, status: 403 });
+  };
+  const { chat, embed } = provider;
+  return {
+    ...provider,
+    chat: (messages, chatOptions) => chat!(messages, chatOptions).catch((error: unknown) => { throw explain(error); }),
+    embed: (texts, embedOptions) => embed!(texts, embedOptions).catch((error: unknown) => { throw explain(error); }),
+  };
 }
 
 /** llama.cpp llama-server. It serves one model, so the name is not checked. */
