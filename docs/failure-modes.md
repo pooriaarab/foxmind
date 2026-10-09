@@ -24,3 +24,17 @@ call it over real HTTP.
 | F6 | The server answers 500. | Throw code `http` with the status and the server's own message. | "500" |
 | F7 | The model name is wrong, and the server says so with 404 or 400. | Throw code `model_not_found`. | "model 404" |
 | F8 | The server answers 200 with a body that is not JSON. | Throw code `bad_response`. | "not json" |
+
+## OpenAI-compatible provider (`openaiCompatible`)
+
+Tests: `tests/openai.test.ts`, against a fake OpenAI-compatible server.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F9 | The server is down when the router asks. | `probe()` returns `ok: false` with code `unreachable`, and does not throw. | "server down" |
+| F10 | The server does not have the model. | `probe()` returns code `model_not_found` and lists the models the server has. | "wrong model" |
+| F11 | A tool call has arguments that are not valid JSON, or not a JSON object. | Throw code `bad_tool_call` with the tool name and the raw text (redacted, cut to 200 characters). | "malformed tool call" |
+| F12 | `json: true`, but the reply is not JSON. | Throw code `bad_json`. | "bad json" |
+| F13 | The server answers 200 with a body that has no `choices`. | Throw code `bad_response`. | "bad response" |
+| F14 | `embed()` gets a different number of vectors than texts. | Throw code `bad_response`. | "embed count" |
+| F15 | The provider object or its status is logged. | The API key is not in `JSON.stringify(provider)`, `util.inspect(provider)` or `status()`. | "key leak" |
