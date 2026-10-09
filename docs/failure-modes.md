@@ -243,3 +243,10 @@ Tests: `tests/trialml.test.ts` (a fake `browser.trial.ml` in Node) and
 | F85 | `trialML` chat with `json: true` returned text that is not JSON. | Run the same reply checks as every provider: throw `bad_json`. | "trial.ml json" |
 | F86 | Each new engine added one more `onProgress` listener. | Add the listener once per page. | "one progress listener" |
 | F87 | In-browser chat (`transformers`) ignored `signal` and `timeoutMs`. | Stop the generation with transformers.js' stopping criteria and throw `aborted` or `timeout`. | "chat abort", "chat timeout" |
+
+## The released demo extension (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F88 | The AMO build shipped test-only code: background ops that overwrite or delete cached models, a `remoteHost` that any extension page could set through a message, and a content script on `http://127.0.0.1/*`. | `pnpm build:ext` (the build AMO signs) has none of them. `node scripts/build-ext.mjs --e2e` makes the test build, which `pnpm e2e` uses. | `tests/release-build.test.ts` |
+| F89 | A model file changes on the hub or on the way, and nothing checks it. | Not handled yet. transformers.js has no hash check, and foxmind does not hash files after download. Hugging Face lists a SHA-256 for each LFS file in its API, so a check is possible. The README says so under Limits. | none (known gap) |

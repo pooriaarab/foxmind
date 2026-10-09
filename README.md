@@ -187,7 +187,10 @@ does, and 2 for bad input. There is no MCP server.
 in the sidebar. It shows which tiers work, sends a test prompt to a local
 server, and compares two sentences with an in-browser embedding model. Build it
 with `pnpm build:ext` and load `dist-ext/manifest.json` from `about:debugging`.
-To let it reach Ollama, start Ollama with `OLLAMA_ORIGINS="moz-extension://*"`.
+`pnpm build:ext` makes the build AMO signs. `node scripts/build-ext.mjs --e2e`
+makes the test build that `pnpm e2e` loads; only it has the test-only ops and
+the content script. To let it reach Ollama, start Ollama with
+`OLLAMA_ORIGINS="moz-extension://*"`.
 Ollama refuses extension origins without it.
 
 ## Tests
@@ -261,6 +264,9 @@ headless, so WASM; all 32 checks passed):
 - Firefox allows one trial ML engine per extension.
 - The in-browser providers do not run in Node. The server and cloud tiers do.
 - ONNX Runtime adds about 27 MB of WASM to an extension.
+- foxmind does not check model files against a hash after the download, and
+  transformers.js does not either. Hugging Face lists a SHA-256 for each LFS
+  file in its API, so a check is possible later.
 
 ## Part of the fox primitives
 
