@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "foxmind demo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One API for on-device AI models in the browser and for your own model key.",
   "browser_specific_settings": {
     "gecko": {
