@@ -16,6 +16,8 @@
     "approval_notes": "The uploaded source.zip is the git tree of this release. To build: install Node 24 and pnpm 11 (corepack enable), run `pnpm install --frozen-lockfile`, then `pnpm build:ext`. The output is dist-ext/. esbuild bundles extension/background.js and extension/panel.js with src/ and @huggingface/transformers. dist-ext/ort/ holds the ONNX Runtime WASM files from the onnxruntime-web npm package, unmodified, because MV3 allows no remote code. To try it without any server: open the panel and press Compare; it downloads all-MiniLM-L6-v2 from Hugging Face and shows a similarity. The prompt needs llama-server or Ollama on this computer. No account is needed."
   },
   "local_hosts": {
-    "http://127.0.0.1/*": "Lists and calls the model servers that the user runs on this computer: llama-server on port 8080 and Ollama on port 11434."
+    "http://127.0.0.1/*": {
+      "host_permission": "Lists and calls the model servers that the user runs on this computer: llama-server on port 8080 and Ollama on port 11434."
+    }
   }
 }
