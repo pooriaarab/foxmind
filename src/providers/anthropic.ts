@@ -118,7 +118,7 @@ export function anthropic(options: AnthropicOptions): Provider {
     let text = "";
     let done = false;
     try {
-      for await (const event of events(fetched.response.body!)) {
+      for await (const event of events(fetched.body!)) {
         const data = JSON.parse(event.data) as { type: string; index?: number; content_block?: Block; delta?: Record<string, string>; message?: Reply; usage?: Reply["usage"]; error?: { type?: string; message?: string } };
         const index = data.index ?? 0;
         if (data.type === "message_start") reply.usage = { ...data.message?.usage };

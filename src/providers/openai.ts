@@ -101,7 +101,7 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
     let done = false;
     let usage: Completion["usage"];
     try {
-      for await (const event of events(fetched.response.body!)) {
+      for await (const event of events(fetched.body!)) {
         if (event.data === "[DONE]") {
           done = true;
           break;

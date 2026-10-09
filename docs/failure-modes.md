@@ -219,3 +219,9 @@ Storage and a fake WebGPU adapter, and a fake `open()` that fails on purpose.
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | F81 | A system message after the first turn went into `messages` with role `system`. Many Anthropic models answer that with 400. | Join every system message, in order, into the top-level `system`. This replaces the "later ones stay in place" part of F33. | `tests/anthropic.test.ts` "request shape" |
+
+## Timeouts on long streams (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F82 | `timeoutMs` counted the whole request, so a healthy stream (Saluki at 10 to 20 tokens a second) was cut after 120 s. | `timeoutMs` is the time to the response headers and the longest gap between two body chunks. A stream that keeps sending may run as long as it needs. A stream that stops for longer than `timeoutMs` still throws `timeout` with `partial`. | `tests/stream.test.ts` "long healthy stream", `tests/http.test.ts` "slow body that keeps sending" |
