@@ -166,4 +166,21 @@ describe("createMind", () => {
       expect(a.calls.probe, code).toBe(2);
     }
   });
+
+  it("only keeps text local (F76)", async () => {
+    const cloud = fake("cloud", "cloud");
+    const mind = createMind({ providers: [fake("server", "local", { down: true }).provider, cloud.provider], only: ["browser", "local"] });
+    const error = await failure(mind.chat(hi));
+    expect(error.code).toBe("no_provider");
+    expect(error.message).toContain("only");
+    expect(cloud.calls.probe + cloud.calls.chat).toBe(0);
+    expect(mind.providers.map((provider) => provider.name)).toEqual(["server"]);
+    await mind.probe();
+    expect(cloud.calls.probe).toBe(0);
+  });
+
+  it("only config (F77)", () => {
+    expect(() => createMind({ providers: [fake("a", "local").provider], only: ["moon" as never] })).toThrow(/moon/);
+    expect(() => createMind({ providers: [fake("a", "cloud").provider], only: ["local"] })).toThrow(/no provider/);
+  });
 });
