@@ -225,3 +225,9 @@ Storage and a fake WebGPU adapter, and a fake `open()` that fails on purpose.
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | F82 | `timeoutMs` counted the whole request, so a healthy stream (Saluki at 10 to 20 tokens a second) was cut after 120 s. | `timeoutMs` is the time to the response headers and the longest gap between two body chunks. A stream that keeps sending may run as long as it needs. A stream that stops for longer than `timeoutMs` still throws `timeout` with `partial`. | `tests/stream.test.ts` "long healthy stream", `tests/http.test.ts` "slow body that keeps sending" |
+
+## Streamed tool call pieces (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F83 | A server sends tool call pieces with no `index`, so every call merged into the first one. A server that repeats the name in each piece got the name twice ("clickclick"). | A piece with no `index` and a new `id` starts a new call. The name is set once, from the first piece that has it. | `tests/stream.test.ts` "tool calls with no index", "name sent twice" |

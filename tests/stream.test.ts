@@ -24,6 +24,11 @@ const call = (index: number, args: string, head?: { id: string; name: string }) 
   choices: [{ index: 0, delta: { tool_calls: [{ index, ...(head ? { id: head.id, type: "function" } : {}), function: { ...(head ? { name: head.name } : {}), arguments: args } }] }, finish_reason: null }],
 });
 
+/** A tool call piece with no index, as some servers send it. */
+const unindexed = (id: string, name: string) => ({ choices: [{ index: 0, delta: { tool_calls: [{ id, type: "function", function: { name, arguments: "{}" } }] }, finish_reason: null }] });
+/** A tool call piece that repeats the name, as some servers send it. */
+const renamed = (args: string) => ({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c1", function: { name: "click", arguments: args } }] }, finish_reason: null }] });
+
 describe("streaming", () => {
   it("streams text to onDelta and returns the whole reply", async () => {
     const { provider, seen } = await serve((_, res) => sse(res, [text("Hel"), text("lo"), text("", "stop"), { choices: [], usage: { prompt_tokens: 4, completion_tokens: 2 } }, "data: [DONE]\n\n"]));
@@ -91,5 +96,17 @@ describe("streaming", () => {
     });
     const reply = await provider.chat!(hi, { onDelta: () => {}, timeoutMs: 300 });
     expect(reply.message.content).toBe("w0 w1 w2 w3 w4 w5 w6 w7 ");
+  });
+
+  it("tool calls with no index (F83)", async () => {
+    const { provider } = await serve((_, res) => sse(res, [unindexed("a", "click"), unindexed("b", "read"), { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }, "data: [DONE]\n\n"]));
+    const reply = await provider.chat!(hi, { onDelta: () => {} });
+    expect(reply.message.tool_calls?.map((c) => `${c.id}:${c.function.name}`)).toEqual(["a:click", "b:read"]);
+  });
+
+  it("name sent twice (F83)", async () => {
+    const { provider } = await serve((_, res) => sse(res, [renamed('{"id":'), renamed('"b2"}'), { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }, "data: [DONE]\n\n"]));
+    const reply = await provider.chat!(hi, { onDelta: () => {} });
+    expect(reply.message.tool_calls).toEqual([{ id: "c1", type: "function", function: { name: "click", arguments: '{"id":"b2"}' } }]);
   });
 });
