@@ -44,7 +44,9 @@ async function localChat(prompt) {
   const found = await tiers();
   const servers = [saluki(), llamaServer()];
   if (found.servers.ollama.models?.length) servers.push(ollama({ model: found.servers.ollama.models[0] }));
-  const mind = createMind({ providers: servers, prefer: ["saluki", "llama-server", "ollama"] });
+  // prefer may name only providers that exist: Ollama is left out when it is not running.
+  const prefer = ["saluki", "llama-server", "ollama"].filter((name) => servers.some((server) => server.name === name));
+  const mind = createMind({ providers: servers, prefer });
   const result = await mind.chat([{ role: "user", content: prompt }], { maxTokens: 200 });
   return { content: result.message.content, provider: result.provider, tier: result.tier, ms: result.ms, skipped: result.skipped };
 }
