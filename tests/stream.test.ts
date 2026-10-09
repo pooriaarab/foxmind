@@ -79,4 +79,17 @@ describe("streaming", () => {
     const error = await failure(provider.chat!(hi, { onDelta: () => {}, timeoutMs: 300 }));
     expect(error).toMatchObject({ code: "timeout", partial: "wait" });
   });
+
+  it("long healthy stream (F82)", async () => {
+    const { provider } = await serve(async (_, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      for (let i = 0; i < 8; i++) {
+        res.write(`data: ${JSON.stringify(text(`w${i} `))}\n\n`);
+        await new Promise((done) => setTimeout(done, 100));
+      }
+      res.end(`data: ${JSON.stringify(text("", "stop"))}\n\ndata: [DONE]\n\n`);
+    });
+    const reply = await provider.chat!(hi, { onDelta: () => {}, timeoutMs: 300 });
+    expect(reply.message.content).toBe("w0 w1 w2 w3 w4 w5 w6 w7 ");
+  });
 });

@@ -116,4 +116,16 @@ describe("http", () => {
     expect(error.message).toContain(other.url);
     expect(other.seen).toHaveLength(0);
   });
+
+  it("slow body that keeps sending (F82)", async () => {
+    const { url } = await serve(async (_, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      for (const piece of ['{"a"', ":", " 1", "}"]) {
+        res.write(piece);
+        await new Promise((done) => setTimeout(done, 150));
+      }
+      res.end();
+    });
+    expect(await get(url, { timeoutMs: 300 })).toEqual({ a: 1 });
+  });
 });
