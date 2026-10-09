@@ -125,7 +125,7 @@ share one loaded model.
 | Export | What it does |
 |---|---|
 | `createMind({ providers, only?, prefer?, fallbackOnError?, probeTtlMs? })` | Makes the router. `only` is the list of tiers it may use (private mode: `["browser", "local"]`); it never probes or calls the others. `prefer` takes provider names or tiers and only changes the order. |
-| `mind.chat(messages, { tools?, json?, onDelta?, temperature?, maxTokens?, timeoutMs?, signal? })` | Chat in the OpenAI shape. `onDelta` streams text. `json: true` fails with `bad_json` when the reply is not JSON. Tool call arguments are checked: they must be a JSON object. |
+| `mind.chat(messages, { tools?, json?, onDelta?, temperature?, maxTokens?, timeoutMs?, signal? })` | Chat in the OpenAI shape. `onDelta` streams text. `json: true` fails with `bad_json` when the reply is not JSON. Tool call arguments are checked: they must be a JSON object. `timeoutMs` is the longest wait for the headers and then for each next piece of the body, so a slow stream that keeps sending is not cut. |
 | `mind.embed(texts)` | One vector per text: `{ vectors, provider, tier, model, ms, skipped }`. |
 | `mind.extract(text, labels, { threshold? })` | GLiNER2 entities per label: `{ entities: { label: [{ text, confidence, start, end }] } }`. |
 | `mind.classify(texts, prompt, labels)` | GLiNER2 label scores per text: `{ scores: [{ label: probability }] }`. |

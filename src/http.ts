@@ -16,11 +16,27 @@ export interface Request extends CallOptions {
   body?: unknown;
 }
 
-/** One signal for the caller's abort and the timeout, and a way to tell which fired. */
-export function deadline(options: CallOptions, fallbackMs: number) {
-  const timeout = AbortSignal.timeout(options.timeoutMs ?? fallbackMs);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-  return { signal, timedOut: () => timeout.aborted && !options.signal?.aborted };
+/**
+ * One signal for the caller's abort and a timeout that can restart. The
+ * timeout covers the wait for the response headers and then each gap between
+ * two body chunks, never the whole request, so a slow healthy stream lives.
+ */
+export function watchdog(options: CallOptions, fallbackMs: number) {
+  const ms = options.timeoutMs ?? fallbackMs;
+  const controller = new AbortController();
+  let fired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => clearTimeout(timer);
+  const arm = () => {
+    stop();
+    timer = setTimeout(() => {
+      fired = true;
+      controller.abort();
+    }, ms);
+  };
+  arm();
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  return { signal, arm, stop, ms, timedOut: () => fired && !options.signal?.aborted };
 }
 
 export function failure(origin: Origin, code: ConstructorParameters<typeof FoxmindError>[0], message: string, details: ErrorDetails = {}) {
@@ -41,7 +57,7 @@ export function failure(origin: Origin, code: ConstructorParameters<typeof Foxmi
 export function fetchFailure(origin: Origin, error: unknown, timedOut: boolean, url: string, timeoutMs: number, partial?: string): FoxmindError {
   if (error instanceof FoxmindError) return error;
   const details = partial === undefined ? {} : { partial };
-  if (timedOut) return failure(origin, "timeout", `No answer from ${url} within ${timeoutMs} ms.`, details);
+  if (timedOut) return failure(origin, "timeout", `${url} sent nothing for ${timeoutMs} ms.`, details);
   if (error instanceof Error && error.name === "AbortError") return failure(origin, "aborted", "The caller stopped the call.", details);
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error);
   if (partial !== undefined) return failure(origin, "stream_interrupted", `The stream from ${url} stopped after ${partial.length} characters: ${cause}`, details);
@@ -88,6 +104,8 @@ export async function httpFailure(origin: Origin, response: Response): Promise<F
 
 export interface Fetched {
   response: Response;
+  /** The body. Each chunk restarts the timeout; read this, not response.body. */
+  body: ReadableStream<Uint8Array> | null;
   /** Map an error from reading the body (a timeout, a dropped connection) to a FoxmindError. */
   fail(error: unknown, partial?: string): FoxmindError;
   json<T>(): Promise<T>;
@@ -95,34 +113,66 @@ export interface Fetched {
 
 /** fetch() that returns an ok response or throws a FoxmindError. */
 export async function call(origin: Origin, url: string, request: Request, fallbackMs: number): Promise<Fetched> {
-  const { signal, timedOut } = deadline(request, fallbackMs);
-  const fail = (error: unknown, partial?: string) => fetchFailure(origin, error, timedOut(), url, request.timeoutMs ?? fallbackMs, partial);
+  const dog = watchdog(request, fallbackMs);
+  const fail = (error: unknown, partial?: string) => fetchFailure(origin, error, dog.timedOut(), url, dog.ms, partial);
   let response: Response;
   try {
     response = await fetch(url, {
       method: request.method ?? (request.body === undefined ? "GET" : "POST"),
       headers: { ...(request.body === undefined ? {} : { "content-type": "application/json" }), ...request.headers },
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
-      signal,
+      signal: dog.signal,
       // Never follow a redirect: fetch would send the key headers to the new host.
       redirect: "manual",
     });
   } catch (error) {
+    dog.stop();
     throw fail(error);
   }
   if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+    dog.stop();
     const target = response.headers.get("location") ?? "a URL the browser does not show";
     await response.body?.cancel().catch(() => {});
     throw failure(origin, "http", `${url} answered ${response.status || "a redirect"} to ${target}. foxmind does not follow redirects, so no key goes to another URL. Use the final URL as baseURL.`, { status: response.status || undefined });
   }
-  if (!response.ok) throw await httpFailure(origin, response);
+  if (!response.ok) {
+    const failed = await httpFailure(origin, response);
+    dog.stop();
+    throw failed;
+  }
+  // The headers came: from now on the timeout is the longest gap between chunks.
+  dog.arm();
+  const reader = response.body?.getReader();
+  const body = reader
+    ? new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const { value, done } = await reader.read();
+            if (done) {
+              dog.stop();
+              controller.close();
+            } else {
+              dog.arm();
+              controller.enqueue(value);
+            }
+          } catch (error) {
+            dog.stop();
+            controller.error(error);
+          }
+        },
+        cancel(reason) {
+          dog.stop();
+          return reader.cancel(reason);
+        },
+      })
+    : (dog.stop(), null);
   const json = async <T>() => {
-    const text = await response.text().catch((error: unknown) => { throw fail(error); });
+    const text = await new Response(body).text().catch((error: unknown) => { throw fail(error); });
     try {
       return JSON.parse(text) as T;
     } catch {
       throw failure(origin, "bad_response", `${url} sent a body that is not JSON: ${clip(text, 120)}`);
     }
   };
-  return { response, fail, json };
+  return { response, body, fail, json };
 }
