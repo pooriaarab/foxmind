@@ -61,16 +61,28 @@ function order(providers: Provider[], prefer: string[] = []): Provider[] {
   return [...new Set([...ranked, ...providers])];
 }
 
+const aborted = () => new FoxmindError("aborted", "The caller stopped the call.");
+
 export function createMind(options: MindOptions): Mind {
   const providers = order(options.providers, options.prefer);
   const ttl = options.probeTtlMs ?? 30_000;
   const probes = new Map<string, { at: number; result: Probe }>();
   let last: MindStatus["last"];
 
+  /**
+   * A cached or fresh probe. The probe runs on its own timeout, never on the
+   * caller's signal, so an abort cannot turn into a cached "unreachable". An
+   * abort while the probe runs throws aborted and caches nothing.
+   */
   async function probe(provider: Provider, callOptions: CallOptions): Promise<Probe> {
     const cached = probes.get(provider.name);
     if (cached && Date.now() - cached.at < ttl) return cached.result;
-    const result = await provider.probe({ signal: callOptions.signal }).catch((error: unknown) => ({ ok: false, code: "unreachable", reason: String(error) }));
+    const running = provider.probe().catch((error: unknown): Probe => ({ ok: false, code: "unreachable", reason: String(error) }));
+    const signal = callOptions.signal;
+    const result = signal
+      ? await Promise.race([running, new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(aborted()), { once: true }))])
+      : await running;
+    if (signal?.aborted) throw aborted();
     probes.set(provider.name, { at: Date.now(), result });
     return result;
   }
@@ -82,6 +94,8 @@ export function createMind(options: MindOptions): Mind {
     }
     const skipped: Skip[] = [];
     for (const provider of able) {
+      // An abort ends the call here. It never moves the text on to the next provider.
+      if (callOptions.signal?.aborted) throw aborted();
       const probed = await probe(provider, callOptions);
       if (!probed.ok) {
         skipped.push({ provider: provider.name, tier: provider.tier, code: probed.code ?? "unavailable", reason: probed.reason ?? "The probe failed." });
@@ -98,8 +112,9 @@ export function createMind(options: MindOptions): Mind {
         return { value, provider: provider.name, tier: provider.tier, model: provider.model, ms: Date.now() - started, skipped };
       } catch (error) {
         const failed = error instanceof FoxmindError ? error : new FoxmindError("http", String(error), { provider: provider.name, tier: provider.tier, cause: error });
-        if (failed.code === "unreachable" || failed.code === "stream_interrupted") probes.delete(provider.name);
-        if (options.fallbackOnError && !streamed && failed.code !== "aborted") {
+        // Whatever went wrong, the cached probe no longer tells the truth.
+        probes.delete(provider.name);
+        if (options.fallbackOnError && !streamed && failed.code !== "aborted" && !callOptions.signal?.aborted) {
           skipped.push({ provider: provider.name, tier: provider.tier, code: failed.code, reason: failed.message });
           continue;
         }
