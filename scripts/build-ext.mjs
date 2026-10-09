@@ -1,6 +1,6 @@
 // Builds the demo extension.
 //   node scripts/build-ext.mjs                the release build AMO signs, in dist-ext/
-//   node scripts/build-ext.mjs --e2e          the test build: adds extension/e2e/ops.js and content.js
+//   node scripts/build-ext.mjs --e2e          the test build: adds extension/e2e/ops.js and e2e-content.js
 //   node scripts/build-ext.mjs --out <dir>    build into another directory
 // esbuild bundles each script as an ES module. ONNX Runtime's WASM files go
 // to ort/ (MV3 allows no remote code). It stops when the manifest version is
@@ -18,12 +18,13 @@ if (manifest.version !== pkg.version) {
   console.error(`extension/manifest.json has version ${manifest.version}, but package.json has ${pkg.version}. Make them equal.`);
   process.exit(1);
 }
-// The content script on 127.0.0.1 exists only for tests.
-if (!values.e2e) delete manifest.content_scripts;
+// The content script on 127.0.0.1 exists only for tests, so only the e2e
+// build has it. Its file name marks it as a test file for check:amo.
+if (values.e2e) manifest.content_scripts = [{ matches: ["http://127.0.0.1/*"], js: ["e2e-content.js"] }];
 
 rmSync(out, { recursive: true, force: true });
 await build({
-  entryPoints: ["background.js", "panel.js", ...(values.e2e ? ["content.js"] : [])].map((file) => `extension/${file}`),
+  entryPoints: ["background.js", "panel.js", ...(values.e2e ? ["e2e-content.js"] : [])].map((file) => `extension/${file}`),
   outdir: out,
   bundle: true,
   format: "esm",
