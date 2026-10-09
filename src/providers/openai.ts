@@ -126,9 +126,13 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
         const thought = delta.reasoning_content ?? delta.reasoning;
         if (thought) message.reasoning_content = (message.reasoning_content ?? "") + thought;
         for (const piece of delta.tool_calls ?? []) {
-          const slot = (calls[piece.index ?? 0] ??= { id: "", type: "function", function: { name: "", arguments: "" } });
+          // With no index, a new id starts a new call; otherwise the piece belongs to the last call.
+          const top = calls.length - 1;
+          const index = piece.index ?? (top < 0 || (piece.id && piece.id !== calls[top]!.id) ? top + 1 : top);
+          const slot = (calls[index] ??= { id: "", type: "function", function: { name: "", arguments: "" } });
           if (piece.id) slot.id = piece.id;
-          slot.function.name += piece.function?.name ?? "";
+          // Some servers repeat the name in every piece: keep the first one.
+          if (piece.function?.name && !slot.function.name) slot.function.name = piece.function.name;
           slot.function.arguments += piece.function?.arguments ?? "";
         }
         finish = choice?.finish_reason ?? finish;
