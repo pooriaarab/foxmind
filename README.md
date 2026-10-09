@@ -27,7 +27,7 @@ import { createMind, ollama, saluki } from "foxmind";
 
 const mind = createMind({
   providers: [saluki(), ollama({ model: "qwen3:0.6b" })],
-  prefer: ["local"],
+  only: ["browser", "local"], // private mode: no cloud provider is ever called
 });
 
 const result = await mind.chat([{ role: "user", content: "Say hello in five words." }], { maxTokens: 1024 });
@@ -36,13 +36,13 @@ console.log(`answered by ${result.provider} (${result.tier})`);
 console.log(result.skipped.map((skip) => `${skip.provider}: ${skip.code}`));
 ```
 
-Output on our test machine. llama-server served another model, not Saluki, so
-the router skipped Saluki and said why:
+Output on our test machine. Saluki was not running, so the router skipped it
+and said why:
 
 ```text
-Hi!
+Hi there!
 answered by ollama (local)
-[ 'saluki: model_not_found' ]
+[ 'saluki: unreachable' ]
 ```
 
 Messages, tools and tool calls use the OpenAI chat completions shape. Code that
@@ -54,7 +54,7 @@ you wrote for that API works here.
 |---|---|---|
 | A Firefox extension developer | Local AI features in an extension: search, summaries, form help | `foxmind/browser` runs embeddings and small chat models in the extension's background page, on WebGPU or on single-thread WASM. |
 | A web app team | A "bring your own key" AI feature | `anthropic()` and `openaiCompatible()` take the user's key at call time and map both APIs to one shape. foxmind does not store the key. |
-| An agent builder who wants privacy | A private-mode agent planner (for example in foxloop or foxmate) | `saluki()` runs Underdog Saluki 27B on llama-server on the same machine. `prefer: ["local"]` keeps page text off the network. |
+| An agent builder who wants privacy | A private-mode agent planner (for example in foxloop or foxmate) | `saluki()` runs Underdog Saluki 27B on llama-server on the same machine. `only: ["browser", "local"]` drops the cloud tier, so page text cannot leave the machine through foxmind. |
 | A form-filling tool | Pull names, dates and places out of a request | `gliner2()` runs GLiNER2 entity extraction and label scoring in the browser, as foxpilot does. |
 | A notes or bookmarks app | Local semantic search | `mind.embed()` with `transformers()` or Firefox's own `trialML()` gives vectors without a server. |
 | A developer or a CI job | A check of which model servers run on a machine | `foxmind doctor` probes llama-server, Ollama and LM Studio, and prints the command that starts each one that is down. |
@@ -64,7 +64,7 @@ you wrote for that API works here.
 ```mermaid
 flowchart TB
   caller["Your code: mind.chat / embed / extract / classify"] --> router["createMind router"]
-  router -->|"1. order by prefer"| order["providers in order"]
+  router -->|"1. drop tiers outside only, order by prefer"| order["providers in order"]
   order -->|"2. probe (cached 30 s)"| probe{"can it run now?"}
   probe -->|no| skip["add to result.skipped with code and reason"]
   skip --> order
@@ -90,7 +90,9 @@ flowchart TB
   call --- cloud
 ```
 
-The router tries providers in the `prefer` order. A provider that cannot run
+The router drops every provider whose tier is not in `only`, then tries the
+rest in the `prefer` order. `prefer` only changes the order; use `only` when
+text must not reach a tier. A provider that cannot run
 now (no WebGPU, server down, model missing, permission not granted) is skipped,
 and the skip goes into `result.skipped`. When a provider fails during a call,
 the router throws that error. It tries the next provider only when you set
@@ -122,7 +124,7 @@ share one loaded model.
 
 | Export | What it does |
 |---|---|
-| `createMind({ providers, prefer?, fallbackOnError?, probeTtlMs? })` | Makes the router. `prefer` takes provider names or tiers (`"browser"`, `"local"`, `"cloud"`). |
+| `createMind({ providers, only?, prefer?, fallbackOnError?, probeTtlMs? })` | Makes the router. `only` is the list of tiers it may use (private mode: `["browser", "local"]`); it never probes or calls the others. `prefer` takes provider names or tiers and only changes the order. |
 | `mind.chat(messages, { tools?, json?, onDelta?, temperature?, maxTokens?, timeoutMs?, signal? })` | Chat in the OpenAI shape. `onDelta` streams text. `json: true` fails with `bad_json` when the reply is not JSON. Tool call arguments are checked: they must be a JSON object. |
 | `mind.embed(texts)` | One vector per text: `{ vectors, provider, tier, model, ms, skipped }`. |
 | `mind.extract(text, labels, { threshold? })` | GLiNER2 entities per label: `{ entities: { label: [{ text, confidence, start, end }] } }`. |
