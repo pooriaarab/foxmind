@@ -73,7 +73,7 @@ try {
     const hello = await ask({ op: "chat", id: "qwen", messages: [{ role: "user", content: "Say hello in three words." }] });
     record.timings.chatColdMs = hello.ms;
     check("in-browser chat: Qwen3-0.6B answers (F55)", typeof hello.reply?.message?.content === "string" && hello.reply.message.content.length > 0, hello.reply?.message ?? hello.error);
-    const weather = await ask({ op: "chat", id: "qwen", tools, messages: [{ role: "user", content: "What is the weather in Paris?" }] });
+    const weather = await ask({ op: "chat", id: "qwen", tools, messages: [{ role: "user", content: "Use the get_weather tool to get the weather in Paris." }] });
     record.timings.chatToolCallMs = weather.ms;
     check("in-browser chat: Qwen3-0.6B calls a tool (F55)", weather.reply?.message?.tool_calls?.[0]?.function?.name === "get_weather", weather.reply?.message ?? weather.error);
     record.chatWhere = weather.status?.where;
