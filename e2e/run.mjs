@@ -74,7 +74,7 @@ try {
   await hub.close();
 }
 record.passed = !record.error && record.checks.length > 0 && record.checks.every((c) => c.ok);
-const path = writeArtifact("artifacts", "e2e", record);
+const path = writeArtifact("artifacts", process.argv.includes("--headed") ? "e2e-headed" : "e2e", record);
 for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}`);
 console.log(JSON.stringify(record.timings));
 console.log(`${record.passed ? "PASS" : "FAIL"}${record.error ? `: ${record.error}` : ""} | ${path}`);

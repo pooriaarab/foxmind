@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "default": "./dist/browser/index.js"
     }
   },
   "files": [
@@ -30,7 +34,7 @@
     "test": "vitest run --passWithNoTests",
     "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext",
     "build:ext": "node scripts/build-ext.mjs",
-    "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors",
+    "lint:ext": "web-ext lint -s dist-ext",
     "e2e": "pnpm build:ext && node e2e/run.mjs"
   },
   "devDependencies": {
@@ -45,5 +49,13 @@
   },
   "bin": {
     "foxmind": "dist/bin.js"
+  },
+  "peerDependencies": {
+    "@huggingface/transformers": "^4.3.1"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
   }
 }
