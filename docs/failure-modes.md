@@ -195,3 +195,10 @@ background page, so every view shares them. Tests: `e2e/run.mjs` "demo panel".
 |---|---|---|---|
 | F74 | The caller aborts while the router probes a local provider. The failed probe got cached, and the router went on to the next provider, so the next call sent the text to the cloud. | Throw code `aborted` at once and try no other provider. Never cache a probe that the abort stopped. A probe runs on its own timeout, not on the caller's signal. | `tests/mind.test.ts` "abort during a probe" |
 | F75 | A call fails with `timeout`, `http`, `auth` or another code, and the cached probe still says the provider is fine. | Any failed call clears that provider's cached probe. | `tests/mind.test.ts` "probe cache after any failure" |
+
+## Private mode: `only` (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F76 | `prefer: ["local"]` only reorders, so when every local provider is down the router sends page text to a cloud provider. | `only: ["browser", "local"]` drops every other tier. The router never probes or calls them, and `no_provider` says that `only` excluded them. | `tests/mind.test.ts` "only keeps text local" |
+| F77 | `only` names a tier that does not exist, or leaves no provider. | `createMind` throws a `TypeError` at once. | `tests/mind.test.ts` "only config" |
