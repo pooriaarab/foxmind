@@ -65,3 +65,15 @@ case is exact. One test streams from a fake server over real HTTP.
 | F25 | The caller aborts. | Throw `aborted`. Never fall back. | "abort" |
 | F26 | A server goes down after a good probe. | The call error clears the cached probe, so the next call probes again. | "probe cache" |
 | F27 | `prefer` names a provider or tier that does not exist, or two providers share a name. | `createMind` throws a `TypeError` at once. | "bad config" |
+
+## Local server presets (`ollama`, `llamaServer`, `lmStudio`, `saluki`)
+
+Tests: `tests/presets.test.ts`, against a fake server on a free port.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F28 | llama-server runs, but it serves a model that is not Saluki. | `saluki().probe()` returns code `model_not_found`, names the model it found, and gives the command that starts Saluki. | "saluki wrong model" |
+| F29 | Ollama runs, but the model is not pulled. | `probe()` returns code `model_not_found` with the `ollama pull` command. A model named without a tag matches `<name>:latest`. | "ollama not pulled" |
+| F30 | llama-server serves one model under any name. | `llamaServer().probe()` does not check the model name. | "llama-server any name" |
+| F31 | Saluki thinks for a long time before a tool call. | `saluki()` turns thinking off and sets temperature 0 by default, as the model card says for tool calls. `thinking: true` uses the card's thinking settings. | "saluki settings" |
+| F32 | No local server is running. | Each preset's probe returns `unreachable` with the start command in the reason. | "preset down" |
