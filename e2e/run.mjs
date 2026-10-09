@@ -9,6 +9,14 @@ import { startHub } from "./hub.mjs";
 const record = { startedAt: new Date().toISOString(), checks: [], timings: {} };
 const check = (name, ok, actual) => record.checks.push({ name, ok: Boolean(ok), actual });
 const MODEL = "Xenova/all-MiniLM-L6-v2";
+// Firefox's remote agent turns off trial ML and Remote Settings for automation
+// (RecommendedPreferences.sys.mjs). A normal profile has both on; trial ML
+// needs Remote Settings for its llama.cpp runtime.
+const PREFS = {
+  "extensions.background.idle.timeout": 600_000,
+  "browser.ml.enable": true,
+  "services.settings.server": "https://firefox.settings.services.mozilla.com/v1",
+};
 const cosine = (a, b) => a.reduce((sum, x, i) => sum + x * b[i], 0);
 const best = (scores) => Object.entries(scores).toSorted((a, b) => b[1] - a[1])[0][0];
 
@@ -19,9 +27,7 @@ try {
     extension: "dist-ext",
     headless: !process.argv.includes("--headed"),
     // Keep the event page alive through long downloads in the test.
-    // Firefox's remote agent turns browser.ml.enable off for automation
-    // (RecommendedPreferences.sys.mjs). A normal profile has it on.
-    prefs: { "extensions.background.idle.timeout": 600_000, "browser.ml.enable": true },
+    prefs: PREFS,
   });
   record.firefox = await fox.browser.version();
   const page = await fox.openExtensionPage("popup.html");
@@ -136,6 +142,30 @@ try {
   } else {
     record.skipped = [...(record.skipped ?? []), "in-browser chat (Qwen3-0.6B, about 0.5 GB) and GLiNER2 (614 MB): set FOXMIND_E2E_HEAVY=1 to run them (F55, F61-F63)"];
   }
+
+  // Firefox allows one trial ML engine per extension, so llama.cpp gets its own Firefox.
+  await fox.close();
+  fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed"), prefs: PREFS });
+  const page2 = await fox.openExtensionPage("popup.html");
+  const tree2 = await fox.browser.connection.send("browsingContext.getTree", { "moz:scope": "chrome" });
+  await fox.browser.connection.send("script.evaluate", {
+    expression: `ChromeUtils.importESModule("resource://gre/modules/ExtensionPermissions.sys.mjs").ExtensionPermissions.add("${fox.extensionId}", { permissions: ["trialML"], origins: [] }, WebExtensionPolicy.getByID("${fox.extensionId}").extension)`,
+    target: { context: tree2.result.contexts[0].context },
+    awaitPromise: true,
+  });
+  const ask2 = async (message) => {
+    const started = Date.now();
+    const reply = await page2.evaluate((m) => browser.runtime.sendMessage(m), message);
+    return { ...reply, ms: Date.now() - started };
+  };
+  const saluki = await ask2({ op: "wllama", step: "probe", model: "ConwayResearch/Underdog-Saluki-27B-1.0", modelFile: "Underdog-Saluki-27B-1.0-IQ2-mix.gguf" });
+  check("saluki in the browser: refused before download (F65)", saluki.ok === false && saluki.code === "out_of_memory", saluki);
+  const outside = await ask2({ op: "wllama", step: "probe", model: "ggml-org/models", modelFile: "tinyllamas/stories260K.gguf" });
+  check("hub rule: a model outside Mozilla and Xenova is refused (F66)", outside.ok === false && outside.code === "unsupported", outside);
+  const tiny = await ask2({ op: "wllama", step: "chat", model: "Mozilla/llama-test-model", modelFile: "tiny-llama.gguf", timeoutMs: 30_000, messages: [{ role: "user", content: "Once upon a time" }] });
+  record.timings.wllamaTinyChatMs = tiny.ms;
+  record.wllama = tiny.reply ? "answered" : tiny.error?.code;
+  check("tiny GGUF: text, or code timeout when the engine never answers (F67, F68)", typeof tiny.reply?.message?.content === "string" || tiny.error?.code === "timeout", tiny.reply?.message ?? tiny.error);
 } catch (error) {
   record.error = error instanceof Error ? error.stack ?? error.message : String(error);
 } finally {

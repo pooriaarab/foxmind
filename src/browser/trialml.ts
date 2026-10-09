@@ -22,6 +22,22 @@ export interface TrialMLOptions {
   device?: "wasm" | "gpu";
   /** Default "trialml-embed" or "trialml-chat". */
   name?: string;
+  /** "llama.cpp" runs a GGUF file (set `modelFile`). Default: Firefox's ONNX backend. */
+  backend?: "llama.cpp";
+  /** The GGUF file in the model repo, for the llama.cpp backend. */
+  modelFile?: string;
+  /** Refuse model files larger than this many bytes before the download. Default 4 GB. */
+  maxBytes?: number;
+}
+
+const GB = 1e9;
+
+/** The size of one file in a Hugging Face repo, from the hub API. */
+async function fileSize(model: string, file: string): Promise<number | undefined> {
+  const response = await fetch(`https://huggingface.co/api/models/${model}?blobs=true`).catch(() => undefined);
+  if (!response?.ok) return undefined;
+  const info = (await response.json()) as { siblings?: { rfilename: string; size?: number }[] };
+  return info.siblings?.find((sibling) => sibling.rfilename === file)?.size;
 }
 
 const api = () => (globalThis as { browser?: Browser }).browser;
@@ -60,17 +76,41 @@ async function unavailable(): Promise<{ code: "unsupported" | "permission"; reas
   return undefined;
 }
 
+/** The text in a text-generation result, in any of the shapes the backends return. */
+function generatedText(output: unknown): string | undefined {
+  if (typeof output === "string") return output;
+  const record = output as { finalOutput?: unknown; output?: unknown } | undefined;
+  if (typeof record?.finalOutput === "string") return record.finalOutput;
+  if (typeof record?.output === "string") return record.output;
+  const text = (output as { generated_text?: string | { content: string }[] }[] | undefined)?.[0]?.generated_text;
+  return Array.isArray(text) ? text.at(-1)?.content : text;
+}
+
 export function trialML(options: TrialMLOptions): Provider {
   const chat = options.task === "chat";
   const model = options.model ?? (chat ? "Xenova/Qwen1.5-0.5B-Chat" : "Xenova/all-MiniLM-L6-v2");
   const name = options.name ?? `trialml-${options.task}`;
   const device = options.device ?? "wasm";
   const origin: Origin = { provider: name, tier: "browser", secrets: [] };
-  const key = `${options.task}:${model}:${device}`;
+  const llama = options.backend === "llama.cpp";
+  const key = `${options.task}:${model}:${options.modelFile ?? ""}:${device}`;
+
+  /** Checks that need no engine: the file size, and the orgs trial ML takes models from. */
+  async function refused(): Promise<{ code: "out_of_memory" | "unsupported"; reason: string } | undefined> {
+    if (llama && options.modelFile) {
+      const size = await fileSize(model, options.modelFile);
+      const max = options.maxBytes ?? 4 * GB;
+      if (size !== undefined && size > max) {
+        return { code: "out_of_memory", reason: `${options.modelFile} is ${(size / GB).toFixed(2)} GB, more than the ${(max / GB).toFixed(2)} GB limit (maxBytes) for a model in the browser. Run it on a local server instead.` };
+      }
+    }
+    if (!/^(Mozilla|Xenova)\//.test(model)) return { code: "unsupported", reason: `trial.ml takes models only from the Mozilla and Xenova orgs on Hugging Face (or the Mozilla hub), not ${model}.` };
+    return undefined;
+  }
   const state: Pick<ProviderStatus, "state" | "progress" | "reason"> = { state: "idle" };
 
   async function ready(): Promise<TrialMl> {
-    const blocked = await unavailable();
+    const blocked = (await unavailable()) ?? (await refused());
     if (blocked) throw failure(origin, blocked.code, blocked.reason);
     const ml = api()!.trial!.ml!;
     if (engine && engine.key !== key) throw failure(origin, "unsupported", `Firefox allows one trial.ml engine per extension, and ${engine.owner} holds it (${engine.key}).`);
@@ -80,7 +120,8 @@ export function trialML(options: TrialMLOptions): Provider {
         const progress = Number(data.progress ?? data.totalProgress);
         if (Number.isFinite(progress)) state.progress = progress > 1 ? progress / 100 : progress;
       });
-      const started = { owner: name, key, ready: ml.createEngine({ taskName: chat ? "text-generation" : "feature-extraction", modelHub: "huggingface", modelId: model, device }) };
+      const request = { taskName: chat ? "text-generation" : "feature-extraction", modelHub: "huggingface", modelId: model, ...(llama ? { backend: "llama.cpp", modelFile: options.modelFile } : { device }) };
+      const started = { owner: name, key, ready: ml.createEngine(request) };
       engine = started;
       started.ready.catch(() => { if (engine === started) engine = undefined; });
     }
@@ -102,12 +143,20 @@ export function trialML(options: TrialMLOptions): Provider {
     return failure(origin, "bad_response", `trial.ml failed: ${message}`);
   }
 
-  async function run(args: unknown[], runOptions: Record<string, unknown>): Promise<unknown> {
+  /** One engine call, stopped after timeoutMs: an engine that never answers must not hang the caller. */
+  async function run(args: unknown[], runOptions: Record<string, unknown>, timeoutMs = 120_000): Promise<unknown> {
     const ml = await ready();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(failure(origin, "timeout", `trial.ml gave no answer within ${timeoutMs} ms.`)), timeoutMs);
+    });
     try {
-      return await ml.runEngine({ args, options: runOptions });
+      return await Promise.race([ml.runEngine({ args, options: runOptions, ...(llama ? runOptions : {}) }), timeout]);
     } catch (error) {
+      if ((error as { code?: string }).code === "timeout") throw error;
       throw mapped(error);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -117,7 +166,7 @@ export function trialML(options: TrialMLOptions): Provider {
     model,
     capabilities: chat ? ["chat"] : ["embed"],
     async probe() {
-      const blocked = await unavailable();
+      const blocked = (await unavailable()) ?? (await refused());
       if (blocked) return { ok: false, ...blocked };
       if (engine && engine.key !== key) return { ok: false, code: "unsupported", reason: `${engine.owner} holds the one trial.ml engine.` };
       return { ok: true, where: `trial.ml (${device})` };
@@ -130,19 +179,30 @@ export function trialML(options: TrialMLOptions): Provider {
       ? {
           async chat(messages: Message[], chatOptions) {
             if (chatOptions.tools?.length) throw failure(origin, "unsupported", "trial.ml has no tool calls. Use transformers() or a server for tools.");
-            const output = (await run([messages.map(({ role, content }) => ({ role, content }))], { max_new_tokens: chatOptions.maxTokens ?? 256 })) as { generated_text?: string | { role: string; content: string }[] }[];
-            const text = output?.[0]?.generated_text;
-            const content = Array.isArray(text) ? text.at(-1)?.content : text;
+            const plain = messages.map(({ role, content }) => ({ role, content }));
+            const maxTokens = chatOptions.maxTokens ?? 256;
+            // The ONNX backend takes { args, options }; the llama.cpp backend takes { prompt, nPredict }.
+            const output = await run([plain], llama ? { prompt: plain, nPredict: maxTokens } : { max_new_tokens: maxTokens }, chatOptions.timeoutMs);
+            const content = generatedText(output);
             if (typeof content !== "string") throw failure(origin, "bad_response", "trial.ml returned no generated text.");
             return { message: { role: "assistant" as const, content }, finishReason: "stop" as const };
           },
         }
       : {
-          async embed(texts: string[]) {
-            const vectors = toVectors(await run([texts], { pooling: "mean", normalize: true }), texts.length);
+          async embed(texts: string[], embedOptions) {
+            const vectors = toVectors(await run([texts], { pooling: "mean", normalize: true }, embedOptions.timeoutMs), texts.length);
             if (!vectors) throw failure(origin, "bad_response", "trial.ml returned a shape that is not one vector per text.");
             return vectors;
           },
         }),
   };
+}
+
+/**
+ * Experimental: a GGUF model on Firefox's llama.cpp backend, through trial ML.
+ * Small models only: trial ML takes models from the Mozilla and Xenova orgs,
+ * and foxmind refuses files over `maxBytes` (default 4 GB) before the download.
+ */
+export function wllama(options: { model: string; modelFile: string; name?: string; maxBytes?: number }): Provider {
+  return trialML({ task: "chat", backend: "llama.cpp", name: options.name ?? "wllama", ...options });
 }
