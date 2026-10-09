@@ -181,10 +181,13 @@ Flags: `--json`, `--ollama URL`, `--llama-server URL`, `--lm-studio URL`,
 `--timeout MS`. The exit code is 0 when at least one server works, 1 when none
 does, and 2 for bad input. There is no MCP server.
 
-### Demo extension
+### Extension
+
+Install from AMO: [addons.mozilla.org/firefox/addon/foxmind](https://addons.mozilla.org/firefox/addon/foxmind/)
+(pending AMO review; the link works after approval).
 
 `extension/` is a small Firefox extension. Its panel opens from the toolbar and
-in the sidebar. It shows which tiers work, sends a test prompt to a local
+in the sidebar. It shows which tiers work, sends a prompt to a local
 server, and compares two sentences with an in-browser embedding model. Build it
 with `pnpm build:ext` and load `dist-ext/manifest.json` from `about:debugging`.
 `pnpm build:ext` makes the build AMO signs. `node scripts/build-ext.mjs --e2e`
@@ -230,7 +233,7 @@ other jobs, and the in-browser Qwen3 call passed the test's 180 s limit.
 | `browser.trial.ml` (`createEngine`, `runEngine`, `onProgress`) | No MDN page: [Firefox source docs](https://firefox-source-docs.mozilla.org/toolkit/components/ml/extensions.html) | `trialML()` and `wllama()` run Firefox's own inference engine. |
 | `permissions.request` / `permissions.contains` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/request) | Ask for the optional `trialML` permission, and check it before each call. |
 | `optional_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/optional_permissions) | `trialML` is an optional-only permission. |
-| `host_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/host_permissions) | The demo calls local servers on `127.0.0.1` and `localhost`. |
+| `host_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/host_permissions) | The add-on calls model servers on this computer at `127.0.0.1` (llama-server on 8080, Ollama on 11434). |
 | `runtime.sendMessage` / `runtime.onMessage` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/sendMessage) | The panel asks the background page, which hosts the models. |
 | `runtime.getURL` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/getURL) | ONNX Runtime loads its WASM files from inside the extension, because MV3 allows no remote code. |
 | Background scripts (event page) | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Background_scripts) | The page that hosts the models. It has a DOM, Cache Storage and WebGPU. |
