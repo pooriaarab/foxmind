@@ -17,7 +17,9 @@ try {
     extension: "dist-ext",
     headless: !process.argv.includes("--headed"),
     // Keep the event page alive through long downloads in the test.
-    prefs: { "extensions.background.idle.timeout": 600_000 },
+    // Firefox's remote agent turns browser.ml.enable off for automation
+    // (RecommendedPreferences.sys.mjs). A normal profile has it on.
+    prefs: { "extensions.background.idle.timeout": 600_000, "browser.ml.enable": true },
   });
   record.firefox = await fox.browser.version();
   const page = await fox.openExtensionPage("popup.html");
@@ -67,6 +69,26 @@ try {
   } else {
     check("webgpu missing: probe says webgpu_missing (F46)", gpu.ok === false && gpu.code === "webgpu_missing", gpu);
   }
+
+  const ungranted = await ask({ op: "trial", step: "probe" });
+  check("trial.ml before the grant: probe says permission (F57)", ungranted.ok === false && ungranted.code === "permission", ungranted);
+  // permissions.request needs a real click, and WebDriver BiDi cannot click in
+  // extension pages. So the test grants trialML the way the click would: through
+  // Firefox's permission store, from the browser window (chrome scope).
+  const tree = await fox.browser.connection.send("browsingContext.getTree", { "moz:scope": "chrome" });
+  await fox.browser.connection.send("script.evaluate", {
+    expression: `ChromeUtils.importESModule("resource://gre/modules/ExtensionPermissions.sys.mjs").ExtensionPermissions.add("${fox.extensionId}", { permissions: ["trialML"], origins: [] }, WebExtensionPolicy.getByID("${fox.extensionId}").extension)`,
+    target: { context: tree.result.contexts[0].context },
+    awaitPromise: true,
+  });
+  const trial = await ask({ op: "trial", step: "embed", texts: ["a cat sleeps", "a kitten naps", "a truck drives"] });
+  record.timings.trialMlColdEmbedMs = trial.ms;
+  const [tcat, tkitten, ttruck] = trial.vectors ?? [];
+  check("trial.ml embed: 384 numbers per text, kitten nearer cat (F59)", tcat?.length === 384 && cosine(tcat, tkitten) > cosine(tcat, ttruck), trial.error ?? { dims: tcat?.length, status: trial.status });
+  const warm = await ask({ op: "trial", step: "embed", texts: ["hello"] });
+  record.timings.trialMlWarmEmbedMs = warm.ms;
+  const second = await ask({ op: "trial", step: "second" });
+  check("one engine: a second trialML() is refused (F58)", second.error?.code === "unsupported" && /one trial\.ml engine/.test(second.error.message), second.error);
 
   if (process.env.FOXMIND_E2E_HEAVY === "1") {
     const tools = [{ type: "function", function: { name: "get_weather", description: "Get the weather for a city", parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } } }];
