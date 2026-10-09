@@ -62,24 +62,28 @@ transcripts. Full rule: pooriaarab/agents-private `rules/fleet-claim.md`.
 ## Layout
 
 ```text
-src/              the library source, built to dist/ by tsc
-tests/            tests for the failure modes in docs/failure-modes.md
+src/                   the library (foxmind): router, HTTP layer, server and cloud providers, doctor CLI
+src/browser/           foxmind/browser: transformers.js, GLiNER2, trial ML and llama.cpp providers
+tests/                 tests for the failure modes in docs/failure-modes.md (fake servers, real HTTP)
 docs/failure-modes.md  every way the code can fail, written before the code
-.github/          CI, release, PR and issue standards
-extension/        the demo extension that shows this repo working in Firefox
-scripts/build-ext.mjs  bundles extension/ into dist-ext/ with esbuild
-e2e/run.mjs       the Firefox E2E test; writes artifacts/e2e-<date>.json
+extension/             the demo extension: background page hosts the models, panel.html shows the tiers
+scripts/build-ext.mjs  bundles extension/ into dist-ext/ and copies ONNX Runtime's WASM into dist-ext/ort/
+e2e/run.mjs            the E2E test (Node half in e2e/node.mjs); writes artifacts/e2e-<date>.json
 ```
 
 ## Commands
 
 ```bash
 pnpm install
-pnpm ci:local   # lint + typecheck + test + build; run before every hand-off
-pnpm build:ext  # extension/ -> dist-ext/; fails if the manifest and package.json versions differ
-pnpm lint:ext   # web-ext lint on dist-ext/ (part of ci:local)
-pnpm e2e        # Firefox E2E; set FIREFOX if Firefox is not in the usual place
+pnpm ci:local              # lint + typecheck + test + build + build:ext + lint:ext
+pnpm e2e                   # real local servers, then Firefox; outside the Claude Code sandbox
+FOXMIND_E2E_HEAVY=1 pnpm e2e  # also Qwen3-0.6B chat and GLiNER2 (about 1.1 GB of downloads)
+pnpm e2e -- --headed       # a visible Firefox; WebGPU works only headed on macOS
+FOXMIND_SCREENSHOT=out.png pnpm e2e  # also save a picture of the demo panel
 ```
+
+The E2E test turns on two prefs that Firefox's remote agent turns off for
+automation: `browser.ml.enable` and `services.settings.server`.
 
 ## Testing
 
