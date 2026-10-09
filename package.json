@@ -41,5 +41,8 @@
     "create-foxkit": "^0.1.0",
     "esbuild": "^0.28.2",
     "web-ext": "^10.7.0"
+  },
+  "bin": {
+    "foxmind": "dist/bin.js"
   }
 }
