@@ -111,47 +111,56 @@ export interface LoadState {
   reason?: string;
 }
 
+/** Errors that point at the model files, not at the device. */
+const FILE_ERROR = /protobuf|pars(e|ing)|Unexpected (token|end)|JSON|invalid model|not a valid|corrupt|magic/i;
+
 /**
  * Loads a model once. Calls that come during a load wait for it. A failed
- * load is not kept, so the next call tries again. Cached files that do not
- * load are deleted and downloaded once more. With device "auto", a model that
- * fails on WebGPU loads on WASM, and the state says so.
+ * load is not kept, so the next call tries again. With device "auto", a model
+ * that fails on WebGPU loads on WASM before anything is deleted. Cached files
+ * are deleted and downloaded once more only when every device failed, or when
+ * the error points at the files.
  */
 export function loadOnce<T>(origin: Origin, model: string, device: Device, open: (device: "webgpu" | "wasm", progress: (p: number) => void) => Promise<T>) {
   const state: LoadState = { state: "idle" };
   let pending: Promise<T> | undefined;
   const progress = (p: number) => { state.progress = p; };
 
-  async function repairing(where: "webgpu" | "wasm"): Promise<T> {
-    const hadCache = await isCached(model);
-    try {
-      return await open(where, progress);
-    } catch (error) {
-      const mapped = toBrowserError(origin, error, model);
-      if (mapped.code !== "bad_response" || !hadCache) throw mapped;
-      const removed = await purgeModel(model);
-      try {
-        const value = await open(where, progress);
-        state.reason = `Repaired: deleted ${removed} cached files of ${model} that did not load, and downloaded them again.`;
-        return value;
-      } catch (second) {
-        const again = toBrowserError(origin, second, model);
-        if (again.code !== "bad_response") throw again;
-        throw failure(origin, "cache_corrupt", `${model} did not load from a fresh download either: ${again.message}`, { cause: second });
-      }
-    }
-  }
-
   async function attempt(): Promise<T> {
     const picked = await pickDevice(device);
     if ("code" in picked) throw failure(origin, picked.code, picked.reason);
     Object.assign(state, { state: "loading", where: picked.device, progress: 0, reason: picked.note });
+    const hadCache = await isCached(model);
+    const devices: ("webgpu" | "wasm")[] = device === "auto" && picked.device === "webgpu" ? ["webgpu", "wasm"] : [picked.device];
+    let first: unknown;
+    let last: unknown;
+    for (const where of devices) {
+      state.where = where;
+      try {
+        const value = await open(where, progress);
+        if (first) state.reason = `WebGPU failed (${(first as Error).message ?? first}), so it runs on WASM.`;
+        return value;
+      } catch (error) {
+        const mapped = toBrowserError(origin, error, model);
+        // A missing model or a broken download is the same on every device.
+        if (mapped.code === "model_not_found" || mapped.code === "download_failed") throw mapped;
+        first ??= error;
+        last = error;
+      }
+    }
+    const mapped = toBrowserError(origin, last, model);
+    const message = last instanceof Error ? last.message : String(last);
+    if (mapped.code !== "bad_response" || !hadCache || (devices.length === 1 && !FILE_ERROR.test(message))) throw mapped;
+    const where = devices.at(-1)!;
+    const removed = await purgeModel(model);
     try {
-      return await repairing(picked.device);
-    } catch (error) {
-      if (device !== "auto" || picked.device !== "webgpu" || (error as FoxmindError).code !== "bad_response") throw error;
-      Object.assign(state, { where: "wasm", reason: `WebGPU failed (${(error as Error).message}), so it runs on WASM.` });
-      return repairing("wasm");
+      const value = await open(where, progress);
+      state.reason = `Repaired: deleted ${removed} cached files of ${model} that did not load, and downloaded them again.`;
+      return value;
+    } catch (second) {
+      const again = toBrowserError(origin, second, model);
+      if (again.code !== "bad_response") throw again;
+      throw failure(origin, "cache_corrupt", `${model} did not load from a fresh download either: ${again.message}`, { cause: second });
     }
   }
 
