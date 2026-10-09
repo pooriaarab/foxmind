@@ -2,5 +2,9 @@
 # esbuild needs its script to check its platform binary.
 allowBuilds:
   esbuild: true
+  # transformers.js pulls these in for Node; foxmind runs models only in the
+  # browser, so their install scripts (native binary downloads) stay off.
+  onnxruntime-node: false
+  protobufjs: false
 minimumReleaseAgeExclude:
   - create-foxkit@0.1.0
