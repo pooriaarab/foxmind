@@ -198,16 +198,17 @@ failure mode (F1 to F72) and its test. The tests went in before the code.
 sends chat, tool calls, streams and JSON requests to each local server that
 runs. Then it starts Firefox with the demo extension. `FOXMIND_E2E_HEAVY=1`
 adds Qwen3-0.6B chat and GLiNER2 in the browser. Results from our run on
-2026-10-09 (Firefox 157.0.1, Apple M3 Pro, headless, so WASM):
+2026-10-09, in `artifacts/e2e-2026-10-09.json` (Firefox 157.0.1, Apple M3 Pro,
+headless, so WASM; all 32 checks passed):
 
 | Check | Result |
 |---|---|
-| llama-server, Qwen3-0.6B GGUF: chat / tool call / stream | 78 ms / 566 ms / 99 ms |
-| Ollama, qwen3:0.6b: chat / tool call / stream (it thinks first) | 4.3 s / 0.5 s / 1.1 s |
-| MiniLM embedding in Firefox: first load with download / cached load / one call | 937 ms / 190 ms / 8 ms |
-| Firefox trial ML, MiniLM embedding: first call / next call | 2.1 s / 9 ms |
-| Qwen3-0.6B chat in Firefox (WASM, q4): first answer with download / tool call | 24.4 s / 25.5 s |
-| GLiNER2 in Firefox (WASM, fp16): load with 614 MB download / extract / classify | 14.0 s / 1.3 s / 1.6 s |
+| llama-server, Qwen3-0.6B GGUF: chat / tool call / stream | 82 ms / 632 ms / 210 ms |
+| Ollama, qwen3:0.6b: chat / tool call / stream (it thinks first) | 1.7 s / 0.9 s / 1.3 s |
+| MiniLM embedding in Firefox: first load with download / cached load / one call | 1,124 ms / 180 ms / 9 ms |
+| Firefox trial ML, MiniLM embedding: first call / next call | 2.0 s / 17 ms |
+| Qwen3-0.6B chat in Firefox (WASM, q4): first answer with download / tool call | 34.2 s / 28.3 s |
+| GLiNER2 in Firefox (WASM, fp16): load with 614 MB download / extract / classify | 19.6 s / 1.6 s / 1.5 s |
 | GLiNER2 against the Python gliner2 library | 14 of 14 reference cases match |
 | Saluki 27B in the browser | refused before download: 7.90 GB is over the 4 GB limit |
 
@@ -244,7 +245,7 @@ adds Qwen3-0.6B chat and GLiNER2 in the browser. Results from our run on
   started but never answered, so the call ends with code `timeout`.
 - We tested `anthropic()` and cloud `openaiCompatible()` against fake servers
   only. No real API key was used.
-- Small in-browser chat models are slow on WASM (about 25 s per answer for
+- Small in-browser chat models are slow on WASM (about 28 s per answer for
   Qwen3-0.6B), and they call a tool only when the prompt asks for it.
 - We ran GLiNER2 on WASM only. Its WebGPU read-back code comes from foxpilot
   and has no foxmind test yet.
