@@ -54,6 +54,21 @@ export interface ChatReply {
   usage?: { inputTokens: number; outputTokens: number };
 }
 
+export interface Entity {
+  text: string;
+  confidence: number;
+  start: number;
+  end: number;
+}
+
+/** Label name to an optional description, as GLiNER2 takes them. */
+export type Labels = Record<string, string | undefined>;
+
+export interface ExtractOptions extends CallOptions {
+  /** Keep spans at or above this confidence. Default 0.5. */
+  threshold?: number;
+}
+
 export interface Probe {
   ok: boolean;
   /** Why the provider cannot run, as an error code. */
@@ -87,4 +102,6 @@ export interface Provider {
   load?(options?: CallOptions): Promise<void>;
   chat?(messages: Message[], options: ChatOptions): Promise<ChatReply>;
   embed?(texts: string[], options: CallOptions): Promise<number[][]>;
+  extract?(text: string, labels: Labels, options: ExtractOptions): Promise<Record<string, Entity[]>>;
+  classify?(texts: string[], prompt: string, labels: Labels, options: CallOptions): Promise<Record<string, number>[]>;
 }
