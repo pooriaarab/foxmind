@@ -94,3 +94,15 @@ Tests: `tests/anthropic.test.ts`, against a fake Messages API server.
 | F38 | A stream breaks, or ends with no `message_stop`. | Join `text_delta` and `input_json_delta` pieces. Throw `stream_interrupted` with `partial` when the stream ends early. An `error` event throws its mapped code. | "stream", "stream ends early", "error event" |
 | F39 | The API is busy (429 or 529). | 429 throws `rate_limited` with `retryAfterMs`. 529 throws `http` with status 529. | "busy" |
 | F40 | The key or the model is wrong. | `probe()` asks `GET /v1/models/{model}`: 404 gives `model_not_found`, 401 gives `auth`. The key is never in an error or the status. | "probe", "key leak" |
+
+## `foxmind doctor`
+
+Tests: `tests/doctor.test.ts`. The tests call the CLI's `main()` with fake servers and closed ports.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F41 | No local server is running. | Each server line says `no`, with the reason and the start command. Exit code 1. | "nothing running" |
+| F42 | A server runs. | Its line says `yes` and lists its models. The Saluki line says `yes` only when llama-server serves Saluki. Exit code 0. | "ollama running", "saluki running" |
+| F43 | An unknown command or flag. | Print the usage to stderr and exit 2. Probe nothing. | "bad flag" |
+| F44 | An API key is in the environment. | doctor does not read keys, so no key can reach its output. | "no keys" |
+| F45 | A server accepts the connection but never answers. | Each probe stops after `--timeout` (default 2000 ms), so doctor always finishes. | "hung server" |
