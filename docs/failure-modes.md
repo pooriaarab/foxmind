@@ -259,3 +259,22 @@ Ollama can serve a model that runs on ollama.com (names such as `gpt-oss:120b-cl
 |---|---|---|---|
 | F90 | `ollama()` and `openaiCompatible()` called every model on localhost tier `local`, so `only: ["browser", "local"]` let a `*-cloud` model send prompts and images to ollama.com. | A model whose name ends in `-cloud` or `:cloud` gets tier `cloud`, so `only` drops it. | `tests/presets.test.ts` "cloud model name" |
 | F91 | An Ollama model runs on a remote host, but its name does not say so. | When the tier is not `cloud`, `ollama().probe()` reads `/api/tags`. If the model has a `remote_host`, the probe fails with code `remote_model` and names the host, so the router skips it. Pass `tier: "cloud"` to use it on purpose. | `tests/presets.test.ts` "remote model without the suffix" |
+
+## AMO release build and listed submission (`scripts/amo-listing.mjs`)
+
+`pnpm check:amo` reads `dist-ext/`, which is what `release.yml` signs. Each
+row is a way that the listed build or the submission can go wrong.
+
+| ID | Failure | Wanted result |
+|---|---|---|
+| AR1 | `dist-ext/` is missing, so the check reads nothing | The check stops and says to run `pnpm build:ext` |
+| AR2 | A content script in the release manifest matches `127.0.0.1`, `localhost` or `*.localhost` (a test bridge) | The check stops and names the pattern |
+| AR3 | A host permission for a local host exists only for tests | The check stops, unless `local_hosts` in the listing gives a reason for that exact pattern |
+| AR4 | A file named for tests (`e2e`, `fixture`, `test`, `spec`) is in `dist-ext/` | The check stops and names the file |
+| AR5 | `dist-ext/` came from `build-ext.mjs --e2e` | AR2 or AR4 stops it |
+| AR6 | The `local_hosts` reasons go to AMO as an unknown field | `metadata` leaves them out, as it does the privacy policy |
+| AR7 | A re-run submits a version that AMO already has as listed | `version-status` says `listed`, and the step skips web-ext sign and finishes the release |
+| AR8 | AMO has the version as unlisted | `version-status` stops and says to bump the version |
+| AR9 | The AMO version lookup fails (401, 500, network) | `version-status` stops; it never guesses `absent` |
+| AR10 | The release build keeps `http://localhost/*`, which no code in the add-on calls (it calls only 127.0.0.1:8080 and 127.0.0.1:11434) | The manifest drops it; AR3 stops the check if it comes back without a reason |
+| AR11 | The release build keeps the e2e content script or `e2e/ops.js` | `build-ext.mjs` adds them only with `--e2e`; AR2 and AR4 stop the check otherwise |
