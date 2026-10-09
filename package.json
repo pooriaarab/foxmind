@@ -1,6 +1,6 @@
 {
   "name": "foxmind",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "One API for on-device AI models in the browser and for your own model key.",
   "type": "module",
   "license": "MIT",
@@ -32,9 +32,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings",
     "test": "vitest run --passWithNoTests",
-    "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext",
+    "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext && pnpm check:amo",
     "build:ext": "node scripts/build-ext.mjs",
     "lint:ext": "web-ext lint -s dist-ext",
+    "check:amo": "node scripts/amo-listing.mjs check",
     "e2e": "pnpm build && node scripts/build-ext.mjs --e2e && node e2e/run.mjs"
   },
   "devDependencies": {
