@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "foxmind demo",
+  "version": "0.1.0",
+  "description": "One API for on-device AI models in the browser and for your own model key.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "foxmind@pooriaarab",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": ["storage", "unlimitedStorage"],
+  "optional_permissions": ["trialML"],
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "action": {
+    "default_title": "foxmind demo",
+    "default_popup": "panel.html"
+  },
+  "sidebar_action": {
+    "default_title": "foxmind demo",
+    "default_panel": "panel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}
