@@ -35,7 +35,7 @@ async function events(res: import("node:http").ServerResponse, list: [string, ob
 }
 
 describe("anthropic", () => {
-  it("request shape (F33, F34)", async () => {
+  it("request shape (F33, F34, F81)", async () => {
     const { provider, seen } = await serve((_, res) => json(res, 200, message([{ type: "text", text: "done" }])));
     const history: Message[] = [
       { role: "system", content: "Be brief." },
@@ -52,13 +52,12 @@ describe("anthropic", () => {
     expect(sent.body).toEqual({
       model: "claude-test",
       max_tokens: 100,
-      system: "Be brief.",
+      system: "Be brief.\n\nNow summarize.",
       tools: [{ name: "click", description: "Click", input_schema: tool.function.parameters }],
       messages: [
         { role: "user", content: "Click both." },
         { role: "assistant", content: [{ type: "text", text: "Sure." }, { type: "tool_use", id: "t1", name: "click", input: { id: "a" } }, { type: "tool_use", id: "t2", name: "click", input: { id: "b" } }] },
         { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok a" }, { type: "tool_result", tool_use_id: "t2", content: "ok b" }] },
-        { role: "system", content: "Now summarize." },
       ],
     });
     expect(reply.message.content).toBe("done");
