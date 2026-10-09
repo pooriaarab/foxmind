@@ -155,3 +155,17 @@ from foxpilot (MIT, same author). Tests: `e2e/run.mjs`.
 | F62 | The JavaScript port drifts from the Python gliner2 library. | Extraction finds the same spans as the Python reference (`e2e/gliner2-reference.json`, from foxpilot), and the top label of each classification is the same. | "gliner2 matches Python" (heavy) |
 | F63 | The text is empty, or there are no labels. | Empty text works (the encoder uses "."). No labels returns `{}` and does not run the model. | "gliner2 edge cases" (heavy) |
 | F64 | ONNX Runtime has no WebGPU device when outputs sit on the GPU. | Throw a clear error. On WASM, outputs are on the CPU and need no read back. | covered by the WASM run in "gliner2" |
+
+## llama.cpp in Firefox (`wllama`, experimental)
+
+`wllama()` asks `browser.trial.ml` for its llama.cpp backend (GGUF models).
+The npm package @wllama/wllama does not run in an extension page: it starts its
+worker from a `blob:` URL, which the extension CSP blocks. Tests: `e2e/run.mjs`,
+in a second Firefox, because Firefox allows one trial ML engine per extension.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F65 | The GGUF file is larger than in-browser memory allows (for example Saluki 27B, 7.89 GB). | `probe()` reads the file size with a HEAD request and refuses with code `out_of_memory` before any download. The limit is `maxBytes`, default 4 GB. | "saluki in the browser" |
+| F66 | The model is not in an org trial ML allows (Mozilla, Xenova on Hugging Face). | `probe()` returns code `unsupported` and names the rule. | "hub rule" |
+| F67 | The llama.cpp backend returns text in a shape we do not expect. | Accept a string, `{ finalOutput }`, `{ output }` or `[{ generated_text }]`. Throw `bad_response` for anything else. | none yet: in our test runs the engine never answered (F68) |
+| F68 | The engine never answers. In the Firefox 157 test profile, llama.cpp `runEngine` hangs after `createEngine` works. | Stop the call after `timeoutMs` (default 120 s) and throw code `timeout`. | "tiny GGUF" |
