@@ -1,6 +1,6 @@
 // The Node half of the E2E test: real local servers through the built
-// library (dist/). Qwen3 on Ollama thinks before it answers, so each call
-// leaves room for the thinking (maxTokens 1024). It runs each server that answers on this machine, and
+// library (dist/). Each call leaves room (maxTokens 1024) in case a model
+// thinks before it answers. It runs each server that answers on this machine, and
 // records the ones that do not, so the artifact says what ran.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -45,9 +45,12 @@ export async function runNode(record, check) {
   check("foxmind doctor --json sees the same servers", JSON.stringify(report.checks.map((c) => c.ok)) === JSON.stringify(found.checks.map((c) => c.ok)), report.checks.map((c) => `${c.name}:${c.ok}`));
   const ran = [];
   const olla = found.checks.find((c) => c.name === "ollama");
-  if (olla.ok && olla.models.length) {
-    ran.push(`ollama (${olla.models[0]})`);
-    await exercise(ollama({ model: olla.models[0] }), check, timings);
+  // FOXMIND_E2E_OLLAMA_MODEL picks the model; the default is the first one Ollama lists.
+  const pick = process.env.FOXMIND_E2E_OLLAMA_MODEL ?? olla.models?.[0];
+  if (olla.ok && pick) {
+    ran.push(`ollama (${pick})`);
+    // reasoning_effort "none" turns off Qwen3's thinking on Ollama, which can use the whole token budget.
+    await exercise(ollama({ model: pick, body: { reasoning_effort: "none" } }), check, timings);
   }
   if (found.checks.find((c) => c.name === "llama-server").ok) {
     ran.push("llama-server");
