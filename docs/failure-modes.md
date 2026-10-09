@@ -188,3 +188,10 @@ background page, so every view shares them. Tests: `e2e/run.mjs` "demo panel".
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | F73 | A server answers 301, 302, 307 or 308 and points to another host. fetch would follow it and send `Authorization`, `x-api-key` or a custom key header there. | Never follow a redirect. Throw code `http` with the status and the target, and send nothing to the target. | `tests/http.test.ts` "redirect", `tests/anthropic.test.ts` "redirect" |
+
+## Router probes and aborts (review fix)
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F74 | The caller aborts while the router probes a local provider. The failed probe got cached, and the router went on to the next provider, so the next call sent the text to the cloud. | Throw code `aborted` at once and try no other provider. Never cache a probe that the abort stopped. A probe runs on its own timeout, not on the caller's signal. | `tests/mind.test.ts` "abort during a probe" |
+| F75 | A call fails with `timeout`, `http`, `auth` or another code, and the cached probe still says the provider is fine. | Any failed call clears that provider's cached probe. | `tests/mind.test.ts` "probe cache after any failure" |
