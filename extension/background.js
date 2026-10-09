@@ -1,7 +1,7 @@
 // The demo's background page (an event page with a DOM in Firefox MV3). It
 // hosts the models, so every view shares one loaded model. Views send it
 // requests with browser.runtime.sendMessage; e2e/run.mjs does the same.
-import { configureRuntime, hasWebGPU, purgeModel, transformers } from "../src/browser/index.js";
+import { configureRuntime, hasWebGPU, purgeModel, transformers, trialML } from "../src/browser/index.js";
 
 const providers = new Map();
 
@@ -10,6 +10,8 @@ function provider(message, task = "embed") {
   if (!providers.has(key)) providers.set(key, transformers({ task, model: message.model, device: message.device ?? "auto" }));
   return providers.get(key);
 }
+
+const trial = trialML({ task: "embed" });
 
 const failed = (error) => ({ error: { code: error.code ?? "error", message: error.message } });
 
@@ -34,6 +36,15 @@ async function handle(message) {
         return { reply: await chosen.chat(message.messages, { tools: message.tools }), status: chosen.status() };
       } catch (error) {
         return { ...failed(error), status: chosen.status() };
+      }
+    }
+    case "trial": {
+      if (message.step === "probe") return trial.probe();
+      if (message.step === "second") return trialML({ task: "embed", model: "Xenova/paraphrase-MiniLM-L3-v2" }).embed(["x"], {}).catch(failed);
+      try {
+        return { vectors: await trial.embed(message.texts, {}), status: trial.status() };
+      } catch (error) {
+        return { ...failed(error), status: trial.status() };
       }
     }
     case "corrupt": {
