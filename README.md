@@ -269,6 +269,12 @@ other jobs, and the in-browser Qwen3 call passed the test's 180 s limit.
   An open popup or sidebar keeps the page loaded.
 - Firefox allows one trial ML engine per extension.
 - The in-browser providers do not run in Node. The server and cloud tiers do.
+- Ollama can run a model on ollama.com. foxmind treats a model named
+  `*-cloud` or `*:cloud` as tier `cloud` (for `ollama()` and for
+  `openaiCompatible()` on localhost), so `only: ["browser", "local"]` drops it.
+  For other names, `ollama().probe()` reads `/api/tags` and refuses a model
+  with a `remote_host` unless you pass `tier: "cloud"`. Other local servers
+  that forward to a remote model are not detected.
 - ONNX Runtime adds about 27 MB of WASM to an extension.
 - foxmind does not check model files against a hash after the download, and
   transformers.js does not either. Hugging Face lists a SHA-256 for each LFS

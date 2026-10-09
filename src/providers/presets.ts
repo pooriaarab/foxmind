@@ -34,9 +34,24 @@ export function ollama(options: PresetOptions & { model: string }): Provider {
     if (!(error instanceof FoxmindError) || error.status !== 403) return error;
     return new FoxmindError("auth", 'Ollama refused this origin (HTTP 403). Start it with OLLAMA_ORIGINS="moz-extension://*" to allow Firefox extensions.', { provider: provider.name, tier: provider.tier, status: 403 });
   };
-  const { chat, embed } = provider;
+  const { chat, embed, probe } = provider;
+  const root = (options.baseURL ?? "http://127.0.0.1:11434/v1").replace(/\/v1\/?$/, "");
   return {
     ...provider,
+    // Ollama can run a model on a remote host with a name that does not say so.
+    // /api/tags lists that host; a local-tier provider must not use such a model.
+    async probe(probeOptions) {
+      const result = await probe(probeOptions);
+      if (!result.ok || provider.tier === "cloud") return result;
+      const tags = await fetch(`${root}/api/tags`, { signal: AbortSignal.timeout(3000), redirect: "manual" })
+        .then((response) => (response.ok ? (response.json() as Promise<{ models?: { name: string; remote_host?: string }[] }>) : undefined))
+        .catch(() => undefined);
+      // Fail closed: when we cannot see where the model runs, a local-tier provider does not use it.
+      if (!tags) return { ok: false, code: "unreachable", where: result.where, reason: `Cannot read ${root}/api/tags to check that ${options.model} runs on this machine.` };
+      const entry = tags.models?.find((model) => model.name === options.model || model.name === `${options.model}:latest`);
+      if (!entry?.remote_host) return result;
+      return { ok: false, code: "remote_model", where: result.where, reason: `Ollama runs ${options.model} on ${entry.remote_host}, not on this machine. Pass tier: "cloud" to use it as a cloud model.` };
+    },
     chat: (messages, chatOptions) => chat!(messages, chatOptions).catch((error: unknown) => { throw explain(error); }),
     embed: (texts, embedOptions) => embed!(texts, embedOptions).catch((error: unknown) => { throw explain(error); }),
   };

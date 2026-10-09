@@ -52,6 +52,11 @@ export function toWire(message: Message) {
   return wire;
 }
 
+/** Ollama names models that run on ollama.com with a "-cloud" or ":cloud" ending. */
+export function isCloudModel(model: string): boolean {
+  return /[-:]cloud$/i.test(model);
+}
+
 export function isLocalURL(url: string): boolean {
   return /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i.test(url);
 }
@@ -59,7 +64,8 @@ export function isLocalURL(url: string): boolean {
 export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
   const baseURL = options.baseURL.replace(/\/+$/, "");
   const name = options.name ?? "openai-compatible";
-  const tier = options.tier ?? (isLocalURL(baseURL) ? "local" : "cloud");
+  // A model named *-cloud (Ollama) runs on a remote host even when the server is on localhost.
+  const tier = options.tier ?? (isLocalURL(baseURL) && !isCloudModel(options.model) ? "local" : "cloud");
   const origin: Origin = { provider: name, tier, secrets: [options.apiKey] };
   const headers = { ...options.headers, ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}) };
   const timeout = options.timeoutMs ?? 120_000;

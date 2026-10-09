@@ -250,3 +250,12 @@ Tests: `tests/trialml.test.ts` (a fake `browser.trial.ml` in Node) and
 |---|---|---|---|
 | F88 | The AMO build shipped test-only code: background ops that overwrite or delete cached models, a `remoteHost` that any extension page could set through a message, and a content script on `http://127.0.0.1/*`. | `pnpm build:ext` (the build AMO signs) has none of them. `node scripts/build-ext.mjs --e2e` makes the test build, which `pnpm e2e` uses. | `tests/release-build.test.ts` |
 | F89 | A model file changes on the hub or on the way, and nothing checks it. | Not handled yet. transformers.js has no hash check, and foxmind does not hash files after download. Hugging Face lists a SHA-256 for each LFS file in its API, so a check is possible. The README says so under Limits. | none (known gap) |
+
+## Ollama cloud models (review fix)
+
+Ollama can serve a model that runs on ollama.com (names such as `gpt-oss:120b-cloud`). Ollama lists such a model with a `remote_host` in `/api/tags`.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F90 | `ollama()` and `openaiCompatible()` called every model on localhost tier `local`, so `only: ["browser", "local"]` let a `*-cloud` model send prompts and images to ollama.com. | A model whose name ends in `-cloud` or `:cloud` gets tier `cloud`, so `only` drops it. | `tests/presets.test.ts` "cloud model name" |
+| F91 | An Ollama model runs on a remote host, but its name does not say so. | When the tier is not `cloud`, `ollama().probe()` reads `/api/tags`. If the model has a `remote_host`, the probe fails with code `remote_model` and names the host, so the router skips it. Pass `tier: "cloud"` to use it on purpose. | `tests/presets.test.ts` "remote model without the suffix" |
