@@ -21,7 +21,7 @@ call it over real HTTP.
 | F3 | The server is too slow. | Throw code `timeout` after `timeoutMs`, also when the body stops halfway. A caller abort throws code `aborted`, not `timeout`. | "timeout", "slow body", "abort" |
 | F4 | The API key is wrong (401 or 403). | Throw code `auth`. | "401" |
 | F5 | The API key leaks into logs. | The key is not in the error message, the stack or `JSON.stringify(error)`. A server error body that echoes the key, or any `sk-…` key, shows `[redacted]`. | "key leak" |
-| F6 | The server answers 500. | Throw code `http` with the status and the server's own message. | "500" |
+| F6 | The server answers 500. | Throw code `http` with the status and the server's own message. A 501 (for example "this server does not support embeddings") throws code `unsupported`. | "500", "501" |
 | F7 | The model name is wrong, and the server says so with 404 or 400. | Throw code `model_not_found`. | "model 404" |
 | F8 | The server answers 200 with a body that is not JSON. | Throw code `bad_response`. | "not json" |
 
