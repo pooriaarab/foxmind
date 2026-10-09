@@ -67,7 +67,7 @@ src/browser/           foxmind/browser: transformers.js, GLiNER2, trial ML and l
 tests/                 tests for the failure modes in docs/failure-modes.md (fake servers, real HTTP)
 docs/failure-modes.md  every way the code can fail, written before the code
 extension/             the demo extension: background page hosts the models, panel.html shows the tiers
-scripts/build-ext.mjs  bundles extension/ into dist-ext/ and copies ONNX Runtime's WASM into dist-ext/ort/
+scripts/build-ext.mjs  bundles extension/ into dist-ext/ (--e2e adds extension/e2e/ops.js and content.js)
 e2e/run.mjs            the E2E test (Node half in e2e/node.mjs); writes artifacts/e2e-<date>.json
 ```
 

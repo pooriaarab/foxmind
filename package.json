@@ -35,7 +35,7 @@
     "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext",
     "build:ext": "node scripts/build-ext.mjs",
     "lint:ext": "web-ext lint -s dist-ext",
-    "e2e": "pnpm build && pnpm build:ext && node e2e/run.mjs"
+    "e2e": "pnpm build && node scripts/build-ext.mjs --e2e && node e2e/run.mjs"
   },
   "devDependencies": {
     "@huggingface/transformers": "^4.3.1",
