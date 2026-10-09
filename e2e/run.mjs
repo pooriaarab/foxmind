@@ -1,12 +1,14 @@
-// The E2E test: install the built demo extension (dist-ext/) in a real
-// Firefox, run in-browser models in its background page, and write
-// artifacts/e2e-<date>.json with every check and timing.
+// The E2E test. First the Node half (e2e/node.mjs): real local servers.
+// Then the Firefox half: install the built demo extension (dist-ext/), run
+// in-browser models in its background page, and use the demo panel. It
+// writes artifacts/e2e-<date>.json with every check and timing.
 // Usage: pnpm e2e [--headed]. Env: FIREFOX (the Firefox binary).
 import { launch, poll, writeArtifact } from "create-foxkit/e2e";
 import { readFileSync } from "node:fs";
 import { doctor } from "../dist/index.js";
 import { startFakeLlama } from "./fake-llama.mjs";
 import { startHub } from "./hub.mjs";
+import { runNode } from "./node.mjs";
 
 const record = { startedAt: new Date().toISOString(), checks: [], timings: {} };
 const check = (name, ok, actual) => record.checks.push({ name, ok: Boolean(ok), actual });
@@ -32,6 +34,7 @@ const served = await fetch("http://127.0.0.1:8080/v1/models", { signal: AbortSig
 record.llamaServer = { server: fakeLlama ? `fake (${fakeLlama.model})` : "something already listens on :8080", models: served };
 let fox;
 try {
+  await runNode(record, check);
   fox = await launch({
     extension: "dist-ext",
     headless: !process.argv.includes("--headed"),
