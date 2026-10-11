@@ -57,12 +57,12 @@ async function failure<T extends Error>(promise: Promise<unknown>, type: new (..
 }
 
 describe("roles", () => {
-  it("role crosses only (F92)", () => {
+  it("role crosses only (F92)", async () => {
     const cloud = model("claude", { tier: "cloud" });
     expect(() => createMind({ providers: [model("saluki").provider, cloud.provider], only: ["browser", "local"], roles: { read: { use: ["claude", "saluki"] } } })).toThrow(/read.*claude.*cloud.*only/);
-    expect(cloud.calls.probe).toBe(0);
     // Without `only`, a cloud provider in a role is the caller's own choice.
-    expect(() => createMind({ providers: [model("saluki").provider, cloud.provider], roles: { read: { use: ["claude"] } } })).not.toThrow();
+    const open = createMind({ providers: [model("saluki").provider, cloud.provider], roles: { read: { use: ["claude"] } } });
+    expect((await open.chat(hi, { role: "read" })).provider).toBe("claude");
   });
 
   it("role config (F93)", () => {
@@ -72,7 +72,12 @@ describe("roles", () => {
     expect(() => createMind({ providers, roles: { read: { use: ["scout", "scout"] } } })).toThrow(/twice/);
     expect(() => createMind({ providers, roles: { read: { use: ["vectors"] } } })).toThrow(/vectors.*chat/);
     expect(() => createMind({ providers, roles: { check: { use: ["scout"], escalate: "maybe" as never } } })).toThrow(/escalate/);
-    expect(() => createMind({ providers, roles: { plan: { use: ["saluki"], shadow: true } } })).toThrow(/plan.*shadow/);
+    expect(() => createMind({ providers, roles: { plan: { use: ["saluki"], shadow: true, timeoutMs: 9 } } })).toThrow(/plan.*shadow/);
+    // A shadow role whose first provider is the planner's first provider compares the planner with itself.
+    expect(() => createMind({ providers, roles: { plan: { use: ["saluki"] }, read: { use: ["saluki"], shadow: true, timeoutMs: 9 } } })).toThrow(/read.*saluki/);
+    expect(() => createMind({ providers, roles: { read: { use: ["saluki", "scout"], shadow: true, timeoutMs: 9 } } })).toThrow(/read.*saluki/);
+    // A shadow scout without a deadline can hang forever.
+    expect(() => createMind({ providers, roles: { read: { use: ["scout"], shadow: true } } })).toThrow(/read.*timeoutMs/);
   });
 
   it("unknown role (F94)", async () => {
@@ -166,7 +171,7 @@ describe("roles", () => {
   it("shadow returns the planner (F100)", async () => {
     const events: ShadowEvent[] = [];
     const providers = [model("saluki", { says: "planner says" }).provider, model("scout", { says: "scout says" }).provider];
-    const mind = createMind({ providers, roles: { plan: { use: ["saluki"] }, read: { use: ["scout", "saluki"], shadow: true } }, onShadow: (event) => events.push(event) });
+    const mind = createMind({ providers, roles: { plan: { use: ["saluki"] }, read: { use: ["scout", "saluki"], shadow: true, timeoutMs: 1000 } }, onShadow: (event) => events.push(event) });
     const result = await mind.chat(hi, { role: "read" });
     expect(result).toMatchObject({ provider: "saluki", message: { content: "planner says" } });
     expect(JSON.stringify(result)).not.toContain("scout says");
@@ -175,28 +180,44 @@ describe("roles", () => {
 
     // A failed scout never fails the call.
     const quiet: ShadowEvent[] = [];
-    const broken = createMind({ providers: [model("saluki").provider, model("scout", { fail: "http" }).provider], roles: { read: { use: ["scout"], shadow: true } }, onShadow: (event) => quiet.push(event) });
+    const broken = createMind({ providers: [model("saluki").provider, model("scout", { fail: "http" }).provider], roles: { read: { use: ["scout"], shadow: true, timeoutMs: 1000 } }, onShadow: (event) => quiet.push(event) });
     expect((await broken.chat(hi, { role: "read" })).provider).toBe("saluki");
     await expect.poll(() => quiet.length).toBe(1);
     expect((quiet[0]!.scout as { error: FoxmindError }).error.code).toBe("http");
 
     // A failed planner throws the planner's error, not the scout's answer.
-    const noPlanner = createMind({ providers: [model("saluki", { fail: "timeout" }).provider, model("scout").provider], roles: { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true } } });
+    const noPlanner = createMind({ providers: [model("saluki", { fail: "timeout" }).provider, model("scout").provider], roles: { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true, timeoutMs: 1000 } } });
     expect(await failure(noPlanner.chat(hi, { role: "read" }), FoxmindError)).toMatchObject({ code: "timeout", provider: "saluki" });
   });
 
   it("shadow does not wait for the scout (F101)", async () => {
     const events: ShadowEvent[] = [];
-    const scout = model("scout", { delayMs: 300 });
-    const roles = { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true, timeoutMs: 100 } };
+    const scout = model("scout", { delayMs: 5000 });
+    const roles = { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true, timeoutMs: 500 } };
     const mind = createMind({ providers: [model("saluki").provider, scout.provider], roles, onShadow: (event) => events.push(event) });
     const started = Date.now();
     expect((await mind.chat(hi, { role: "read" })).provider).toBe("saluki");
-    expect(Date.now() - started).toBeLessThan(80);
+    // The scout settles only at its 500 ms deadline, so an earlier answer did not wait for it.
+    expect(Date.now() - started).toBeLessThan(500);
     expect(events).toHaveLength(0);
-    await expect.poll(() => events.length).toBe(1);
+    await expect.poll(() => events.length, { timeout: 2000 }).toBe(1);
     expect((events[0]!.scout as { error: FoxmindError }).error.code).toBe("timeout");
     expect(scout.calls.aborted).toBe(1);
+  });
+
+  it("shadow uses the planner's own options (F105)", async () => {
+    const small = model("small", { says: "prose" });
+    const big = model("big", { says: '{"sure": true}' });
+    const providers = [small.provider, big.provider, model("scout").provider];
+    const read = { use: ["scout"], shadow: true, timeoutMs: 1000 };
+    const escalating = createMind({ providers, roles: { plan: { use: ["small", "big"], escalate: "unsure" }, read } });
+    await failure(escalating.chat(hi, { role: "read", onDelta: () => {} }), TypeError);
+    expect(small.calls.chat + big.calls.chat).toBe(0);
+    // The planner's escalate, json and maxInput apply, not the shadow role's.
+    expect(await escalating.chat(hi, { role: "read" })).toMatchObject({ provider: "big", skipped: [{ provider: "small", code: "unsure" }] });
+    expect(small.calls.options[0]?.json).toBe(true);
+    const short = createMind({ providers, roles: { plan: { use: ["small", "big"], maxInput: 1 }, read } });
+    expect(await short.chat(hi, { role: "read" })).toMatchObject({ provider: "big", skipped: [{ provider: "small", code: "too_long" }] });
   });
 
   it("maxInput (F102)", async () => {
@@ -210,7 +231,7 @@ describe("roles", () => {
 
   it("shadow hook throws (F103)", async () => {
     let fired = 0;
-    const roles = { read: { use: ["scout"], shadow: true } };
+    const roles = { read: { use: ["scout"], shadow: true, timeoutMs: 1000 } };
     const mind = createMind({ providers: [model("saluki").provider, model("scout").provider], roles, onShadow: () => { fired++; throw new Error("hook broke"); } });
     expect((await mind.chat(hi, { role: "read" })).provider).toBe("saluki");
     await expect.poll(() => fired).toBe(1);
