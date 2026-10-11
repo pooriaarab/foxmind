@@ -173,7 +173,7 @@ const result = await mind.chat(messages, { role: "read", json: true }); // resul
 | `timeoutMs` | A hard deadline for each provider before the last one (code `timeout`). The request is stopped. |
 | `json` | Ask for JSON by default. A provider that answers prose fails with `bad_json`, and the role moves on. |
 | `escalate: "unsure"` | Move on when the reply is not JSON or says `"sure": false` (code `unsure`). The last provider's answer is returned as it is. It cannot stream. |
-| `shadow: true` | Run the first provider and the planner side by side. The result is always the planner's; `onShadow` gets both when both settle, so you can measure how often they agree. |
+| `shadow: true` | Run the first provider and the planner side by side. The result is always the planner's, made with the planner's own options; `onShadow` gets both when both settle, so you can measure how often they agree. A shadow role needs `timeoutMs`, and its first provider must differ from the planner's. |
 
 The planner is the `plan` role, or the router without roles when there is no
 `plan` role. A call without `role` goes to the planner. An unknown role throws.

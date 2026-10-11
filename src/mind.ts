@@ -161,7 +161,7 @@ export function createMind(options: MindOptions): Mind {
   for (const [name, spec] of Object.entries(options.roles ?? {})) {
     if (!spec.use?.length) throw new TypeError(`Role "${name}" has an empty use list. Name at least one provider.`);
     if (spec.escalate !== undefined && spec.escalate !== "unsure") throw new TypeError(`Role "${name}" has escalate "${String(spec.escalate)}". The only value is "unsure".`);
-    if (spec.shadow && name === PLANNER) throw new TypeError(`Role "${PLANNER}" cannot shadow: shadow compares a role with the ${PLANNER} role.`);
+    if (spec.shadow && spec.timeoutMs === undefined) throw new TypeError(`Role "${name}" shadows, so it needs timeoutMs: a scout without a deadline can hang forever.`);
     const picked = spec.use.map((entry, index) => {
       if (spec.use.indexOf(entry) !== index) throw new TypeError(`Role "${name}" names "${entry}" twice. Each provider runs at most once.`);
       const provider = providers.find((candidate) => candidate.name === entry);
@@ -172,6 +172,10 @@ export function createMind(options: MindOptions): Mind {
       return provider;
     });
     roles.set(name, { providers: picked, role: name, spec });
+  }
+  const plannerFirst = (roles.get(PLANNER)?.providers ?? providers.filter((provider) => provider.capabilities.includes("chat")))[0];
+  for (const route of roles.values()) {
+    if (route.spec?.shadow && route.providers[0] === plannerFirst) throw new TypeError(`Role "${route.role}" shadows with ${plannerFirst?.name}, the ${PLANNER} route's first provider, so it compares the ${PLANNER} with itself.`);
   }
 
   /**
@@ -222,7 +226,7 @@ export function createMind(options: MindOptions): Mind {
       try {
         const value = limited && spec.timeoutMs !== undefined ? await deadline(spec.timeoutMs, provider, attempt, (o) => run(provider, o)) : await run(provider, attempt);
         const unsure = spec?.escalate && next ? doubt(value as ChatReply) : undefined;
-        if (unsure) {
+        if (unsure && !streamed) {
           skipped.push({ provider: provider.name, tier: provider.tier, code: "unsure", reason: unsure });
           continue;
         }
@@ -251,23 +255,26 @@ export function createMind(options: MindOptions): Mind {
       const { role: name, ...rest } = chatOptions;
       const route = roles.get(name ?? PLANNER);
       if (name !== undefined && !route) throw new TypeError(`No role named "${name}". Roles: ${[...roles.keys()].join(", ") || "none"}.`);
+      const shadow = route?.spec?.shadow ? route : undefined;
+      // The route whose answer is the result. For a shadow call that is the planner.
+      const target = shadow ? (roles.get(PLANNER) ?? { providers }) : (route ?? { providers });
+      if (target.spec?.escalate && rest.onDelta) throw new TypeError(`Role "${target.role}" escalates, so it cannot stream: the caller would see text from a provider the role then replaces.`);
+      const chars = messages.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+      // Each route runs with its own role's options.
       const send = async (to: Route, o: ChatOptions): Promise<ChatResult> => {
-        const { value, ...answered } = await call("chat", o, (provider, x) => provider.chat!(messages, x), to);
+        const spec = to.spec;
+        const own = spec ? { ...o, json: spec.escalate ? true : (o.json ?? spec.json) } : o;
+        const { value, ...answered } = await call("chat", own, (provider, x) => provider.chat!(messages, x), { ...to, chars });
         return { ...value, ...answered };
       };
-      if (!route) return send({ providers }, rest);
-      const spec = route.spec!;
-      if (spec.escalate && rest.onDelta) throw new TypeError(`Role "${route.role}" escalates, so it cannot stream: the caller would see text from a provider the role then replaces.`);
-      const o = { ...rest, json: spec.escalate ? true : (rest.json ?? spec.json) };
-      const chars = messages.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
-      if (!spec.shadow) return send({ ...route, chars }, o);
+      if (!shadow) return send(target, rest);
       // Shadow: the planner's answer is the result. The scout's answer goes only to onShadow.
-      const { onDelta: _quiet, ...silent } = o;
-      const scout = settle(send({ ...route, providers: route.providers.slice(0, 1), chars, limitLast: true, record: false }, silent));
-      const planner = settle(send(roles.get(PLANNER) ?? { providers }, o));
+      const { onDelta: _quiet, ...silent } = rest;
+      const scout = settle(send({ ...shadow, providers: shadow.providers.slice(0, 1), limitLast: true, record: false }, silent));
+      const planner = settle(send(target, rest));
       void Promise.all([scout, planner]).then(([s, p]) => {
         try {
-          options.onShadow?.({ role: route.role!, scout: s, planner: p });
+          options.onShadow?.({ role: shadow.role!, scout: s, planner: p });
         } catch {
           // A broken hook never breaks the call.
         }
