@@ -284,3 +284,27 @@ row is a way that the listed build or the submission can go wrong.
 |---|---|---|
 | AR-U1 | A `local_hosts` reason for a host permission also clears a test content script on the same pattern | Each reason names its use (`host_permission`, `content_script`, `web_accessible_resource`, `externally_connectable`); a use without its own reason stops the check |
 | AR-U2 | `local_hosts` keeps a reason for a use that the release build does not have | The check stops and names the pattern and the use |
+
+## Roles: a mixture of local models (`roles`)
+
+A role sends one kind of sub-task to its own ordered list of providers, for
+example a small fast "scout" model first and the planner second. Tests:
+`tests/roles.test.ts`. Most use in-memory providers; the JSON case runs over
+real HTTP against a fake server.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F92 | A role names a provider that `only` excludes, for example a cloud provider in private mode, so the role sends page text off the machine. | `createMind` throws a `TypeError` that names the role, the provider, its tier and `only`. The provider is never probed or called. | "role crosses only" |
+| F93 | A role has an empty `use` list, names a provider that does not exist or cannot chat, names one provider twice, has an unknown `escalate`, or shadows with the planner's own first provider, so it compares the planner with itself. | `createMind` throws a `TypeError` at once. An empty list never means "any provider". | "role config" |
+| F94 | A call names a role that does not exist. | The call throws a `TypeError` that lists the roles. No provider is probed or called. | "unknown role" |
+| F95 | The role's first provider is down or fails. | Use the next provider in `use` and list the skip and the reason in `result.skipped`, with the same codes `chat()` uses. `use` is the caller's own fallback list, so a failed call moves on also without `fallbackOnError`. An abort, or a failure after streamed text, never moves on. | "role fallback", "role abort" |
+| F96 | The scout hangs, so the whole run waits on the weakest model. | `timeoutMs` on the role bounds every provider before the last one. At the deadline the request is stopped, the skip has code `timeout`, and the next provider answers. | "scout timeout" |
+| F97 | `escalate: "unsure"` loops: providers pass the task back and forth, or retry forever. | Invalid JSON or `"sure": false` moves to the next provider. Each provider in `use` runs at most once. The last provider's answer is returned as it is, also when it is unsure. | "escalation" |
+| F98 | `escalate` with `onDelta` shows the scout's text, then replaces it with the planner's. | The call throws a `TypeError` before any provider runs. | "escalate refuses a stream" |
+| F99 | JSON mode on a provider that cannot do it: it ignores `response_format` and answers prose. | The reply check throws `bad_json`; the role lists it in `skipped` and moves on. On the last provider the call throws `bad_json`. | "json mode a provider ignores" |
+| F100 | `shadow` leaks the scout's answer as the result. | The result is always the planner's. The scout's answer goes only to `onShadow`. A failed scout never fails the call; a failed planner throws the planner's error. | "shadow returns the planner" |
+| F101 | A slow scout in `shadow` delays the planner's result. | The call returns when the planner answers. `onShadow` fires when both have settled. A shadow role must set `timeoutMs`, which bounds the scout; without it `createMind` throws a `TypeError`. | "shadow does not wait for the scout" |
+| F102 | Long input goes to a scout with a short context. | With `maxInput`, a provider before the last one is skipped with code `too_long` when the messages have more characters than that. | "maxInput" |
+| F103 | An `onShadow` hook that throws breaks the call. | The error is caught and the call returns the planner's result. | "shadow hook throws" |
+| F105 | `shadow` runs the planner with the shadow role's options, so the planner's `json`, `escalate` and `maxInput` do not apply, and an escalating planner streams two answers into one `onDelta`. | The planner runs with its own role's options. `escalate` on the planner with `onDelta` throws a `TypeError` before any provider runs. No role moves on after text streamed. | "shadow uses the planner's own options" |
+| F104 | A call without a role goes to the scout. | Without `role`, the call uses the `plan` role when there is one, else the router as before. It never uses another role. | "no role" |

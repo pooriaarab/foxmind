@@ -47,6 +47,8 @@ export interface ChatOptions extends CallOptions {
   maxTokens?: number;
   /** Stream the reply. Called with each new piece of text. */
   onDelta?: (text: string) => void;
+  /** A role from `createMind({ roles })`. Without one, the call uses the `plan` role when there is one. */
+  role?: string;
 }
 
 export type FinishReason = "stop" | "length" | "tool_calls" | "content_filter";
