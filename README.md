@@ -124,8 +124,8 @@ share one loaded model.
 
 | Export | What it does |
 |---|---|
-| `createMind({ providers, only?, prefer?, fallbackOnError?, probeTtlMs? })` | Makes the router. `only` is the list of tiers it may use (private mode: `["browser", "local"]`); it never probes or calls the others. `prefer` takes provider names or tiers and only changes the order. |
-| `mind.chat(messages, { tools?, json?, onDelta?, temperature?, maxTokens?, timeoutMs?, signal? })` | Chat in the OpenAI shape. `onDelta` streams text. `json: true` fails with `bad_json` when the reply is not JSON. Tool call arguments are checked: they must be a JSON object. `timeoutMs` is the longest wait for the headers and then for each next piece of the body, so a slow stream that keeps sending is not cut. |
+| `createMind({ providers, only?, prefer?, fallbackOnError?, probeTtlMs?, roles?, onShadow? })` | Makes the router. `only` is the list of tiers it may use (private mode: `["browser", "local"]`); it never probes or calls the others. `prefer` takes provider names or tiers and only changes the order. |
+| `mind.chat(messages, { role?, tools?, json?, onDelta?, temperature?, maxTokens?, timeoutMs?, signal? })` | Chat in the OpenAI shape. `onDelta` streams text. `json: true` fails with `bad_json` when the reply is not JSON. Tool call arguments are checked: they must be a JSON object. `timeoutMs` is the longest wait for the headers and then for each next piece of the body, so a slow stream that keeps sending is not cut. |
 | `mind.embed(texts)` | One vector per text: `{ vectors, provider, tier, model, ms, skipped }`. |
 | `mind.extract(text, labels, { threshold? })` | GLiNER2 entities per label: `{ entities: { label: [{ text, confidence, start, end }] } }`. |
 | `mind.classify(texts, prompt, labels)` | GLiNER2 label scores per text: `{ scores: [{ label: probability }] }`. |
@@ -144,6 +144,39 @@ To run Saluki, follow its [model card](https://huggingface.co/ConwayResearch/Und
 huggingface-cli download ConwayResearch/Underdog-Saluki-27B-1.0 Underdog-Saluki-27B-1.0-IQ2-mix.gguf --local-dir .
 llama-server -m Underdog-Saluki-27B-1.0-IQ2-mix.gguf --jinja -ngl 99 -fa on -c 32768
 ```
+
+### Roles: a mixture of local models
+
+A role sends one kind of sub-task to its own ordered list of providers. Use it
+to give short, simple jobs to a small fast model (the "scout") and keep
+planning on the big one.
+
+```js
+const mind = createMind({
+  providers: [saluki(), llamaServer({ name: "scout", baseURL: "http://127.0.0.1:8082/v1", model: "qwen3.5-4b", body: { temperature: 0, chat_template_kwargs: { enable_thinking: false } } })],
+  only: ["browser", "local"],
+  roles: {
+    plan: { use: ["saluki"] },
+    read: { use: ["scout", "saluki"], maxInput: 6000, timeoutMs: 20000 },
+    check: { use: ["scout", "saluki"], escalate: "unsure" },
+    fields: { use: ["scout", "saluki"], json: true },
+  },
+  onShadow: ({ role, scout, planner }) => record(role, scout, planner),
+});
+const result = await mind.chat(messages, { role: "read", json: true }); // result.role, result.skipped
+```
+
+| Option | What it does |
+|---|---|
+| `use` | Provider names, tried in order. A down or failed provider moves the call on, and `skipped` says why. Each provider runs at most once. A role that names a provider `only` excludes makes `createMind` throw. |
+| `maxInput` | Skip a provider before the last one when the messages are longer than this many characters (code `too_long`). |
+| `timeoutMs` | A hard deadline for each provider before the last one (code `timeout`). The request is stopped. |
+| `json` | Ask for JSON by default. A provider that answers prose fails with `bad_json`, and the role moves on. |
+| `escalate: "unsure"` | Move on when the reply is not JSON or says `"sure": false` (code `unsure`). The last provider's answer is returned as it is. It cannot stream. |
+| `shadow: true` | Run the first provider and the planner side by side. The result is always the planner's, made with the planner's own options; `onShadow` gets both when both settle, so you can measure how often they agree. A shadow role needs `timeoutMs`, and its first provider must differ from the planner's. |
+
+The planner is the `plan` role, or the router without roles when there is no
+`plan` role. A call without `role` goes to the planner. An unknown role throws.
 
 ### `foxmind/browser` (extension pages and web pages)
 
