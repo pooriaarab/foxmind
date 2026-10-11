@@ -1,6 +1,6 @@
 {
   "name": "foxmind",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "One API for on-device AI models in the browser and for your own model key.",
   "type": "module",
   "license": "MIT",

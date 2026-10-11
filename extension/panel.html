@@ -7,11 +7,14 @@
   </head>
   <body>
     <header>
-      <h1>foxmind</h1>
-      <p>Which model tiers work here, and a quick check of each.</p>
+      <div class="title">
+        <img class="mark" src="icons/icon-48.png" alt="" width="22" height="22" />
+        <h1>foxmind</h1>
+      </div>
+      <p>See which model tiers work here, and check each one.</p>
     </header>
 
-    <section aria-labelledby="tiers-title">
+    <section class="card" aria-labelledby="tiers-title">
       <h2 id="tiers-title">Tiers</h2>
       <table id="tiers">
         <tbody>
@@ -23,21 +26,23 @@
           <tr data-row="cloud"><th>Cloud</th><td>Your own key</td><td class="state">Pass it in code. This panel does not ask for one.</td></tr>
         </tbody>
       </table>
-      <button id="allow-trialml" type="button" hidden>Allow trial ML</button>
+      <button id="allow-trialml" class="primary" type="button" hidden>Allow trial ML</button>
     </section>
 
-    <section aria-labelledby="chat-title">
-      <h2 id="chat-title">Try a prompt (local server)</h2>
+    <section class="card" aria-labelledby="chat-title">
+      <h2 id="chat-title">Try a prompt</h2>
+      <p class="hint">Runs on your local model server.</p>
       <textarea id="prompt" rows="2">Say hello in five words.</textarea>
-      <button id="run" type="button">Run</button>
+      <button id="run" class="small" type="button">Run</button>
       <output id="chat-result"></output>
     </section>
 
-    <section aria-labelledby="embed-title">
-      <h2 id="embed-title">Embedding (in the browser)</h2>
+    <section class="card" aria-labelledby="embed-title">
+      <h2 id="embed-title">Compare two sentences</h2>
+      <p class="hint">Runs an embedding model in the browser.</p>
       <input id="text-a" value="A cat sleeps on the sofa." aria-label="First sentence" />
       <input id="text-b" value="A kitten naps on the couch." aria-label="Second sentence" />
-      <button id="embed" type="button">Compare</button>
+      <button id="embed" class="small" type="button">Compare</button>
       <output id="embed-result"></output>
     </section>
 
