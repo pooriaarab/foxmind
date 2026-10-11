@@ -17,6 +17,35 @@ export interface MindOptions {
   fallbackOnError?: boolean;
   /** How long a probe result stays good. Default 30000. */
   probeTtlMs?: number;
+  /**
+   * Named sub-tasks, each with its own ordered list of providers, for example
+   * a small fast "scout" model before the planner. A call picks one with
+   * `chat(messages, { role })`. A call without a role uses `plan` when it exists.
+   */
+  roles?: Record<string, RoleOptions>;
+  /** Called after a `shadow` call, once the scout and the planner have both settled. */
+  onShadow?: (event: ShadowEvent) => void;
+}
+
+export interface RoleOptions {
+  /** Provider names, tried in this order. Each runs at most once. A role cannot name a provider that `only` excludes. */
+  use: string[];
+  /** Skip a provider before the last one when the messages have more characters than this. */
+  maxInput?: number;
+  /** The longest wait, in milliseconds, for a provider before the last one. Then the role moves on. */
+  timeoutMs?: number;
+  /** Ask for one JSON object by default. */
+  json?: boolean;
+  /** "unsure": move on when the reply is not JSON or says `"sure": false`. Implies `json`. */
+  escalate?: "unsure";
+  /** Run the first provider and the planner side by side, return the planner's answer, and report both to `onShadow`. */
+  shadow?: boolean;
+}
+
+export interface ShadowEvent {
+  role: string;
+  scout: ChatResult | { error: Error };
+  planner: ChatResult | { error: Error };
 }
 
 export interface Answered {
@@ -26,6 +55,8 @@ export interface Answered {
   ms: number;
   /** Providers tried before this one, and why each did not answer. */
   skipped: Skip[];
+  /** The role the call used, if any. */
+  role?: string;
 }
 
 export type ChatResult = ChatReply & Answered;
@@ -67,6 +98,54 @@ function order(providers: Provider[], prefer: string[] = []): Provider[] {
 }
 
 const aborted = () => new FoxmindError("aborted", "The caller stopped the call.");
+const PLANNER = "plan";
+
+/** Where a call may go: every provider, or a role's own list. */
+interface Route {
+  providers: Provider[];
+  role?: string;
+  spec?: RoleOptions;
+  /** Apply the role's limits also to the last provider (the scout of a shadow call). */
+  limitLast?: boolean;
+  /** Characters in the messages, for `maxInput`. */
+  chars?: number;
+  /** Update `status().last`. Default true. */
+  record?: boolean;
+}
+
+/** Why an `escalate: "unsure"` role moves on from this reply, or undefined to keep it. */
+function doubt(reply: ChatReply): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(reply.message.content ?? "");
+  } catch {
+    return "The reply is not JSON.";
+  }
+  return typeof parsed === "object" && parsed !== null && (parsed as { sure?: unknown }).sure === false ? 'The reply says "sure": false.' : undefined;
+}
+
+/** A result or its error, never a rejection. */
+function settle(running: Promise<ChatResult>): Promise<ChatResult | { error: Error }> {
+  return running.catch((error: unknown) => ({ error: error instanceof Error ? error : new Error(String(error)) }));
+}
+
+/** Run one attempt with a hard deadline. At the deadline the request is stopped and the attempt fails with `timeout`. */
+function deadline<T>(ms: number, provider: Provider, options: ChatOptions, run: (options: ChatOptions) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  options.signal?.addEventListener("abort", stop, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new FoxmindError("timeout", `No answer in ${ms} ms, the role's timeoutMs.`, { provider: provider.name, tier: provider.tier }));
+      controller.abort();
+    }, ms);
+  });
+  return Promise.race([run({ ...options, signal: controller.signal }), late]).finally(() => {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", stop);
+  });
+}
 
 export function createMind(options: MindOptions): Mind {
   const only = options.only;
@@ -77,6 +156,27 @@ export function createMind(options: MindOptions): Mind {
   const ttl = options.probeTtlMs ?? 30_000;
   const probes = new Map<string, { at: number; result: Probe }>();
   let last: MindStatus["last"];
+
+  const roles = new Map<string, Route>();
+  for (const [name, spec] of Object.entries(options.roles ?? {})) {
+    if (!spec.use?.length) throw new TypeError(`Role "${name}" has an empty use list. Name at least one provider.`);
+    if (spec.escalate !== undefined && spec.escalate !== "unsure") throw new TypeError(`Role "${name}" has escalate "${String(spec.escalate)}". The only value is "unsure".`);
+    if (spec.shadow && spec.timeoutMs === undefined) throw new TypeError(`Role "${name}" shadows, so it needs timeoutMs: a scout without a deadline can hang forever.`);
+    const picked = spec.use.map((entry, index) => {
+      if (spec.use.indexOf(entry) !== index) throw new TypeError(`Role "${name}" names "${entry}" twice. Each provider runs at most once.`);
+      const provider = providers.find((candidate) => candidate.name === entry);
+      const dropped = options.providers.find((candidate) => candidate.name === entry);
+      if (!provider && dropped) throw new TypeError(`Role "${name}" uses "${entry}" (${dropped.tier}), which only: [${only?.join(", ")}] excludes. A role cannot cross only.`);
+      if (!provider) throw new TypeError(`Role "${name}" uses "${entry}", which is not a provider. Providers: ${providers.map((p) => p.name).join(", ")}.`);
+      if (!provider.capabilities.includes("chat")) throw new TypeError(`Role "${name}" uses "${entry}", which cannot chat.`);
+      return provider;
+    });
+    roles.set(name, { providers: picked, role: name, spec });
+  }
+  const plannerFirst = (roles.get(PLANNER)?.providers ?? providers.filter((provider) => provider.capabilities.includes("chat")))[0];
+  for (const route of roles.values()) {
+    if (route.spec?.shadow && route.providers[0] === plannerFirst) throw new TypeError(`Role "${route.role}" shadows with ${plannerFirst?.name}, the ${PLANNER} route's first provider, so it compares the ${PLANNER} with itself.`);
+  }
 
   /**
    * A cached or fresh probe. The probe runs on its own timeout, never on the
@@ -96,15 +196,23 @@ export function createMind(options: MindOptions): Mind {
     return result;
   }
 
-  async function call<T>(capability: Capability, callOptions: ChatOptions, run: (provider: Provider, options: ChatOptions) => Promise<T>): Promise<{ value: T } & Answered> {
-    const able = providers.filter((provider) => provider.capabilities.includes(capability));
+  async function call<T>(capability: Capability, callOptions: ChatOptions, run: (provider: Provider, options: ChatOptions) => Promise<T>, route: Route = { providers }): Promise<{ value: T } & Answered> {
+    const able = route.providers.filter((provider) => provider.capabilities.includes(capability));
+    const spec = route.spec;
     if (!able.length) {
       throw new FoxmindError("no_provider", `No provider can ${capability}. Providers: ${providers.map((p) => `${p.name} (${p.capabilities.join(", ")})`).join("; ") || "none"}.${excluded}`, { skipped: [] });
     }
     const skipped: Skip[] = [];
-    for (const provider of able) {
+    for (const [index, provider] of able.entries()) {
       // An abort ends the call here. It never moves the text on to the next provider.
       if (callOptions.signal?.aborted) throw aborted();
+      const next = index < able.length - 1;
+      // A role's limits guard the cheap attempts. The last provider in `use` is the backstop.
+      const limited = spec && (next || route.limitLast);
+      if (limited && spec.maxInput !== undefined && (route.chars ?? 0) > spec.maxInput) {
+        skipped.push({ provider: provider.name, tier: provider.tier, code: "too_long", reason: `The messages have ${route.chars} characters; role "${route.role}" sends at most ${spec.maxInput} to ${provider.name}.` });
+        continue;
+      }
       const probed = await probe(provider, callOptions);
       if (!probed.ok) {
         skipped.push({ provider: provider.name, tier: provider.tier, code: probed.code ?? "unavailable", reason: probed.reason ?? "The probe failed." });
@@ -116,14 +224,20 @@ export function createMind(options: MindOptions): Mind {
       const attempt = onDelta ? { ...callOptions, onDelta: (text: string) => { streamed = true; onDelta(text); } } : callOptions;
       const started = Date.now();
       try {
-        const value = await run(provider, attempt);
-        last = { capability, provider: provider.name, tier: provider.tier, model: provider.model, at: new Date().toISOString() };
-        return { value, provider: provider.name, tier: provider.tier, model: provider.model, ms: Date.now() - started, skipped };
+        const value = limited && spec.timeoutMs !== undefined ? await deadline(spec.timeoutMs, provider, attempt, (o) => run(provider, o)) : await run(provider, attempt);
+        const unsure = spec?.escalate && next ? doubt(value as ChatReply) : undefined;
+        if (unsure && !streamed) {
+          skipped.push({ provider: provider.name, tier: provider.tier, code: "unsure", reason: unsure });
+          continue;
+        }
+        if (route.record !== false) last = { capability, provider: provider.name, tier: provider.tier, model: provider.model, at: new Date().toISOString() };
+        return { value, provider: provider.name, tier: provider.tier, model: provider.model, ms: Date.now() - started, skipped, ...(route.role ? { role: route.role } : {}) };
       } catch (error) {
         const failed = error instanceof FoxmindError ? error : new FoxmindError("http", String(error), { provider: provider.name, tier: provider.tier, cause: error });
         // Whatever went wrong, the cached probe no longer tells the truth.
         probes.delete(provider.name);
-        if (options.fallbackOnError && !streamed && failed.code !== "aborted" && !callOptions.signal?.aborted) {
+        // A role's `use` list is the caller's own fallback list, so it moves on without fallbackOnError.
+        if ((route.role ? next : options.fallbackOnError) && !streamed && failed.code !== "aborted" && !callOptions.signal?.aborted) {
           skipped.push({ provider: provider.name, tier: provider.tier, code: failed.code, reason: failed.message });
           continue;
         }
@@ -138,8 +252,36 @@ export function createMind(options: MindOptions): Mind {
   return {
     providers,
     async chat(messages, chatOptions = {}) {
-      const { value, ...answered } = await call("chat", chatOptions, (provider, o) => provider.chat!(messages, o));
-      return { ...value, ...answered };
+      const { role: name, ...rest } = chatOptions;
+      const route = roles.get(name ?? PLANNER);
+      if (name !== undefined && !route) throw new TypeError(`No role named "${name}". Roles: ${[...roles.keys()].join(", ") || "none"}.`);
+      const shadow = route?.spec?.shadow ? route : undefined;
+      // The route whose answer is the result. For a shadow call that is the planner.
+      const target = shadow ? (roles.get(PLANNER) ?? { providers }) : (route ?? { providers });
+      if (target.spec?.escalate && rest.onDelta) throw new TypeError(`Role "${target.role}" escalates, so it cannot stream: the caller would see text from a provider the role then replaces.`);
+      const chars = messages.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+      // Each route runs with its own role's options.
+      const send = async (to: Route, o: ChatOptions): Promise<ChatResult> => {
+        const spec = to.spec;
+        const own = spec ? { ...o, json: spec.escalate ? true : (o.json ?? spec.json) } : o;
+        const { value, ...answered } = await call("chat", own, (provider, x) => provider.chat!(messages, x), { ...to, chars });
+        return { ...value, ...answered };
+      };
+      if (!shadow) return send(target, rest);
+      // Shadow: the planner's answer is the result. The scout's answer goes only to onShadow.
+      const { onDelta: _quiet, ...silent } = rest;
+      const scout = settle(send({ ...shadow, providers: shadow.providers.slice(0, 1), limitLast: true, record: false }, silent));
+      const planner = settle(send(target, rest));
+      void Promise.all([scout, planner]).then(([s, p]) => {
+        try {
+          options.onShadow?.({ role: shadow.role!, scout: s, planner: p });
+        } catch {
+          // A broken hook never breaks the call.
+        }
+      });
+      const answer = await planner;
+      if ("error" in answer) throw answer.error;
+      return answer;
     },
     async embed(texts, embedOptions = {}) {
       const { value, ...answered } = await call("embed", embedOptions, (provider, o) => provider.embed!(texts, o));
