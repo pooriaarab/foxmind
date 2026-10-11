@@ -153,10 +153,7 @@ planning on the big one.
 
 ```js
 const mind = createMind({
-  providers: [
-    saluki(),
-    llamaServer({ name: "scout", baseURL: "http://127.0.0.1:8082/v1", model: "qwen3.5-4b", body: { temperature: 0, chat_template_kwargs: { enable_thinking: false } } }),
-  ],
+  providers: [saluki(), llamaServer({ name: "scout", baseURL: "http://127.0.0.1:8082/v1", model: "qwen3.5-4b", body: { temperature: 0, chat_template_kwargs: { enable_thinking: false } } })],
   only: ["browser", "local"],
   roles: {
     plan: { use: ["saluki"] },
@@ -166,8 +163,7 @@ const mind = createMind({
   },
   onShadow: ({ role, scout, planner }) => record(role, scout, planner),
 });
-const result = await mind.chat(messages, { role: "read", json: true });
-// result.provider, result.role, result.skipped: [{ provider: "scout", code: "too_long", ... }]
+const result = await mind.chat(messages, { role: "read", json: true }); // result.role, result.skipped
 ```
 
 | Option | What it does |

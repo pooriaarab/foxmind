@@ -59,11 +59,7 @@ async function failure<T extends Error>(promise: Promise<unknown>, type: new (..
 describe("roles", () => {
   it("role crosses only (F92)", () => {
     const cloud = model("claude", { tier: "cloud" });
-    expect(() => createMind({
-      providers: [model("saluki").provider, cloud.provider],
-      only: ["browser", "local"],
-      roles: { read: { use: ["claude", "saluki"] } },
-    })).toThrow(/read.*claude.*cloud.*only/);
+    expect(() => createMind({ providers: [model("saluki").provider, cloud.provider], only: ["browser", "local"], roles: { read: { use: ["claude", "saluki"] } } })).toThrow(/read.*claude.*cloud.*only/);
     expect(cloud.calls.probe).toBe(0);
     // Without `only`, a cloud provider in a role is the caller's own choice.
     expect(() => createMind({ providers: [model("saluki").provider, cloud.provider], roles: { read: { use: ["claude"] } } })).not.toThrow();
@@ -169,11 +165,8 @@ describe("roles", () => {
 
   it("shadow returns the planner (F100)", async () => {
     const events: ShadowEvent[] = [];
-    const mind = createMind({
-      providers: [model("saluki", { says: "planner says" }).provider, model("scout", { says: "scout says" }).provider],
-      roles: { plan: { use: ["saluki"] }, read: { use: ["scout", "saluki"], shadow: true } },
-      onShadow: (event) => events.push(event),
-    });
+    const providers = [model("saluki", { says: "planner says" }).provider, model("scout", { says: "scout says" }).provider];
+    const mind = createMind({ providers, roles: { plan: { use: ["saluki"] }, read: { use: ["scout", "saluki"], shadow: true } }, onShadow: (event) => events.push(event) });
     const result = await mind.chat(hi, { role: "read" });
     expect(result).toMatchObject({ provider: "saluki", message: { content: "planner says" } });
     expect(JSON.stringify(result)).not.toContain("scout says");
@@ -182,31 +175,21 @@ describe("roles", () => {
 
     // A failed scout never fails the call.
     const quiet: ShadowEvent[] = [];
-    const broken = createMind({
-      providers: [model("saluki").provider, model("scout", { fail: "http" }).provider],
-      roles: { read: { use: ["scout"], shadow: true } },
-      onShadow: (event) => quiet.push(event),
-    });
+    const broken = createMind({ providers: [model("saluki").provider, model("scout", { fail: "http" }).provider], roles: { read: { use: ["scout"], shadow: true } }, onShadow: (event) => quiet.push(event) });
     expect((await broken.chat(hi, { role: "read" })).provider).toBe("saluki");
     await expect.poll(() => quiet.length).toBe(1);
     expect((quiet[0]!.scout as { error: FoxmindError }).error.code).toBe("http");
 
     // A failed planner throws the planner's error, not the scout's answer.
-    const noPlanner = createMind({
-      providers: [model("saluki", { fail: "timeout" }).provider, model("scout").provider],
-      roles: { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true } },
-    });
+    const noPlanner = createMind({ providers: [model("saluki", { fail: "timeout" }).provider, model("scout").provider], roles: { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true } } });
     expect(await failure(noPlanner.chat(hi, { role: "read" }), FoxmindError)).toMatchObject({ code: "timeout", provider: "saluki" });
   });
 
   it("shadow does not wait for the scout (F101)", async () => {
     const events: ShadowEvent[] = [];
     const scout = model("scout", { delayMs: 300 });
-    const mind = createMind({
-      providers: [model("saluki").provider, scout.provider],
-      roles: { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true, timeoutMs: 100 } },
-      onShadow: (event) => events.push(event),
-    });
+    const roles = { plan: { use: ["saluki"] }, read: { use: ["scout"], shadow: true, timeoutMs: 100 } };
+    const mind = createMind({ providers: [model("saluki").provider, scout.provider], roles, onShadow: (event) => events.push(event) });
     const started = Date.now();
     expect((await mind.chat(hi, { role: "read" })).provider).toBe("saluki");
     expect(Date.now() - started).toBeLessThan(80);
@@ -227,11 +210,8 @@ describe("roles", () => {
 
   it("shadow hook throws (F103)", async () => {
     let fired = 0;
-    const mind = createMind({
-      providers: [model("saluki").provider, model("scout").provider],
-      roles: { read: { use: ["scout"], shadow: true } },
-      onShadow: () => { fired++; throw new Error("hook broke"); },
-    });
+    const roles = { read: { use: ["scout"], shadow: true } };
+    const mind = createMind({ providers: [model("saluki").provider, model("scout").provider], roles, onShadow: () => { fired++; throw new Error("hook broke"); } });
     expect((await mind.chat(hi, { role: "read" })).provider).toBe("saluki");
     await expect.poll(() => fired).toBe(1);
   });
