@@ -14,6 +14,36 @@ export interface Request extends CallOptions {
   method?: "GET" | "POST";
   headers?: Record<string, string>;
   body?: unknown;
+  /**
+   * How many more times to send a request that got no response headers
+   * (code `unreachable`: fetch threw before any response). Only a provider of
+   * tier "local" retries: Firefox says `unreachable` for any drop before the
+   * headers, so the server may have got the request and done the work, and a
+   * cloud provider would bill it twice. The waits are 300 ms, then 1200 ms,
+   * and all tries share one timeout from the first send. Nothing else is
+   * retried. Default 0.
+   */
+  retries?: number;
+}
+
+/** The wait before each retry of an unreachable request. */
+const BACKOFF_MS = [300, 1200];
+
+/** Wait `ms`, or throw `aborted` at once when the caller aborts. */
+function pause(origin: Origin, ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((done, fail) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopped = () => {
+      clearTimeout(timer);
+      fail(failure(origin, "aborted", "The caller stopped the call."));
+    };
+    if (signal?.aborted) return stopped();
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", stopped);
+      done();
+    }, ms);
+    signal?.addEventListener("abort", stopped, { once: true });
+  });
 }
 
 /**
@@ -21,20 +51,21 @@ export interface Request extends CallOptions {
  * timeout covers the wait for the response headers and then each gap between
  * two body chunks, never the whole request, so a slow healthy stream lives.
  */
-export function watchdog(options: CallOptions, fallbackMs: number) {
+export function watchdog(options: CallOptions, fallbackMs: number, firstMs?: number) {
   const ms = options.timeoutMs ?? fallbackMs;
   const controller = new AbortController();
   let fired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const stop = () => clearTimeout(timer);
-  const arm = () => {
+  const arm = (wait = ms) => {
     stop();
     timer = setTimeout(() => {
       fired = true;
       controller.abort();
-    }, ms);
+    }, wait);
   };
-  arm();
+  // A retry gets only the time left of the first try's wait (F111).
+  arm(firstMs ?? ms);
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   return { signal, arm, stop, ms, timedOut: () => fired && !options.signal?.aborted };
 }
@@ -54,14 +85,14 @@ export function failure(origin: Origin, code: ConstructorParameters<typeof Foxmi
  * was running, a dropped connection is `stream_interrupted` and the error
  * keeps the text streamed so far.
  */
-export function fetchFailure(origin: Origin, error: unknown, timedOut: boolean, url: string, timeoutMs: number, partial?: string): FoxmindError {
+export function fetchFailure(origin: Origin, error: unknown, timedOut: boolean, url: string, timeoutMs: number, partial?: string, tries = 1): FoxmindError {
   if (error instanceof FoxmindError) return error;
   const details = partial === undefined ? {} : { partial };
   if (timedOut) return failure(origin, "timeout", `${url} sent nothing for ${timeoutMs} ms.`, details);
   if (error instanceof Error && error.name === "AbortError") return failure(origin, "aborted", "The caller stopped the call.", details);
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error);
   if (partial !== undefined) return failure(origin, "stream_interrupted", `The stream from ${url} stopped after ${partial.length} characters: ${cause}`, details);
-  return failure(origin, "unreachable", `Cannot reach ${url}: ${cause}`);
+  return failure(origin, "unreachable", `Cannot reach ${url}${tries > 1 ? ` after ${tries} tries` : ""}: ${cause}`);
 }
 
 /** "Retry-After" in seconds or as a date, or "retry-after-ms". */
@@ -111,23 +142,41 @@ export interface Fetched {
   json<T>(): Promise<T>;
 }
 
-/** fetch() that returns an ok response or throws a FoxmindError. */
+/**
+ * fetch() that returns an ok response or throws a FoxmindError. On a local
+ * provider, a request that got no response headers goes again
+ * `request.retries` times, within the one timeout of the first send; then the
+ * error says how many tries ran. The server may have got an earlier try.
+ */
 export async function call(origin: Origin, url: string, request: Request, fallbackMs: number): Promise<Fetched> {
-  const dog = watchdog(request, fallbackMs);
+  // A cloud provider never retries: the server may have got the request, and it would bill twice (F111).
+  const retries = origin.tier === "local" ? Math.min(request.retries ?? 0, BACKOFF_MS.length) : 0;
+  let dog = watchdog(request, fallbackMs);
+  const started = Date.now();
   const fail = (error: unknown, partial?: string) => fetchFailure(origin, error, dog.timedOut(), url, dog.ms, partial);
   let response: Response;
-  try {
-    response = await fetch(url, {
-      method: request.method ?? (request.body === undefined ? "GET" : "POST"),
-      headers: { ...(request.body === undefined ? {} : { "content-type": "application/json" }), ...request.headers },
-      body: request.body === undefined ? undefined : JSON.stringify(request.body),
-      signal: dog.signal,
-      // Never follow a redirect: fetch would send the key headers to the new host.
-      redirect: "manual",
-    });
-  } catch (error) {
-    dog.stop();
-    throw fail(error);
+  for (let tried = 1; ; tried++) {
+    try {
+      response = await fetch(url, {
+        method: request.method ?? (request.body === undefined ? "GET" : "POST"),
+        headers: { ...(request.body === undefined ? {} : { "content-type": "application/json" }), ...request.headers },
+        body: request.body === undefined ? undefined : JSON.stringify(request.body),
+        signal: dog.signal,
+        // Never follow a redirect: fetch would send the key headers to the new host.
+        redirect: "manual",
+      });
+      break;
+    } catch (error) {
+      dog.stop();
+      const failed = fetchFailure(origin, error, dog.timedOut(), url, dog.ms, undefined, tried);
+      if (failed.code !== "unreachable" || tried > retries) throw failed;
+      // All tries share the first send's timeout: no time left after the wait, no retry (F111).
+      const wait = BACKOFF_MS[tried - 1]!;
+      const left = dog.ms - (Date.now() - started) - wait;
+      if (left <= 0) throw failed;
+      await pause(origin, wait, request.signal);
+      dog = watchdog(request, fallbackMs, left);
+    }
   }
   if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
     dog.stop();
