@@ -128,4 +128,48 @@ describe("http", () => {
     });
     expect(await get(url, { timeoutMs: 300 })).toEqual({ a: 1 });
   });
+  it("dropped connection (F106)", async () => {
+    const { url, seen } = await serve((_, res) => { if (seen.length === 1) res.socket?.destroy(); else json(res, 200, { ok: 2 }); });
+    const fetched = await call(origin, `${url}/x`, { body: { a: 1 }, retries: 2 }, 2000);
+    expect(await fetched.json()).toEqual({ ok: 2 });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.body).toEqual({ a: 1 });
+  });
+
+  it("no retries by default (F110)", async () => {
+    const { url, seen } = await serve((_, res) => { res.socket?.destroy(); });
+    expect((await failure(call(origin, `${url}/x`, { body: { a: 1 } }, 2000))).code).toBe("unreachable");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("down after retries (F107)", async () => {
+    const url = await closedPort();
+    const started = Date.now();
+    const error = await failure(call(origin, url, { body: {}, retries: 2 }, 2000));
+    expect(error.code).toBe("unreachable");
+    expect(error.message).toContain("3 tries");
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1400);
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  it("abort between tries (F108)", async () => {
+    const { url, seen } = await serve((_, res) => { res.socket?.destroy(); });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 100);
+    const started = Date.now();
+    expect((await failure(call(origin, url, { body: {}, retries: 2, signal: controller.signal }, 2000))).code).toBe("aborted");
+    expect(Date.now() - started).toBeLessThan(290);
+    await new Promise((done) => setTimeout(done, 400));
+    expect(seen).toHaveLength(1);
+  });
+
+  it("no retry after an answer (F109)", async () => {
+    const http = await serve((_, res) => json(res, 500, { error: { message: "boom" } }));
+    expect((await failure(call(origin, http.url, { body: {}, retries: 2 }, 2000))).code).toBe("http");
+    expect(http.seen).toHaveLength(1);
+    await close?.();
+    const slow = await serve(() => {});
+    expect((await failure(call(origin, slow.url, { body: {}, retries: 2, timeoutMs: 150 }, 2000))).code).toBe("timeout");
+    expect(slow.seen).toHaveLength(1);
+  });
 });

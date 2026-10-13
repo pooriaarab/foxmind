@@ -67,6 +67,9 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
   // A model named *-cloud (Ollama) runs on a remote host even when the server is on localhost.
   const tier = options.tier ?? (isLocalURL(baseURL) && !isCloudModel(options.model) ? "local" : "cloud");
   const origin: Origin = { provider: name, tier, secrets: [options.apiKey] };
+  // Retry a call that got no response headers on a local server only: the server may have got
+  // it, and a cloud provider would bill it twice (F106, F111).
+  const retries = tier === "local" ? 2 : 0;
   const headers = { ...options.headers, ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}) };
   const timeout = options.timeoutMs ?? 120_000;
   let last: Probe | undefined;
@@ -194,14 +197,14 @@ export function openaiCompatible(options: OpenAICompatibleOptions): Provider {
     async chat(messages, chat) {
       const url = `${baseURL}/chat/completions`;
       const stream = chat.onDelta !== undefined;
-      const fetched = await call(origin, url, { ...chat, headers, body: request(messages, chat, stream) }, timeout);
+      const fetched = await call(origin, url, { ...chat, headers, body: request(messages, chat, stream), retries }, timeout);
       const data = chat.onDelta ? await collect(fetched, chat.onDelta) : await fetched.json<Completion>();
       return checkReply(origin, reply(data), chat.json);
     },
 
     async embed(texts, embed) {
       const url = `${baseURL}/embeddings`;
-      const fetched = await call(origin, url, { ...embed, headers, body: { model: options.embedModel ?? options.model, input: texts } }, timeout);
+      const fetched = await call(origin, url, { ...embed, headers, body: { model: options.embedModel ?? options.model, input: texts }, retries }, timeout);
       const data = (await fetched.json<{ data?: { index: number; embedding: number[] }[] }>()).data;
       if (!Array.isArray(data) || data.length !== texts.length) {
         throw failure(origin, "bad_response", `Asked for ${texts.length} embeddings and got ${Array.isArray(data) ? data.length : "none"}.`);

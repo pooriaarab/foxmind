@@ -5,6 +5,7 @@
 // Usage: pnpm e2e [--headed]. Env: FIREFOX (the Firefox binary).
 import { launch, poll, writeArtifact } from "create-foxkit/e2e";
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { doctor } from "../dist/index.js";
 import { startFakeLlama } from "./fake-llama.mjs";
 import { startHub } from "./hub.mjs";
@@ -53,6 +54,46 @@ try {
 
   record.env = await ask({ op: "env" });
   check("no SharedArrayBuffer in the extension page (F47)", record.env.crossOriginIsolated === false, record.env);
+
+  // Firefox says "NetworkError when attempting to fetch resource" when a local
+  // server drops the connection. One drop must not end the call (F106); a
+  // server that keeps dropping fails as unreachable after 3 tries (F107).
+  // Firefox itself sends again once on a reused connection, so the server can
+  // see more than 3 requests.
+  const drops = { seen: 0, always: false };
+  const dropper = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      drops.seen++;
+      if (drops.always || drops.seen === 1) return req.socket.destroy();
+      const choices = [{ index: 0, message: { role: "assistant", content: "back" }, finish_reason: "stop" }];
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ choices }));
+    });
+  });
+  await new Promise((done) => dropper.listen(0, "127.0.0.1", done));
+  const dropURL = `http://127.0.0.1:${dropper.address().port}/v1`;
+  const once = await ask({ op: "server", baseURL: dropURL });
+  check("Firefox: one dropped connection, the call still answers (F106)", once.reply?.message?.content === "back" && drops.seen === 2, { ...once, seen: drops.seen });
+  Object.assign(drops, { seen: 0, always: true });
+  const down = await ask({ op: "server", baseURL: dropURL });
+  check("Firefox: a server that keeps dropping fails unreachable after 3 tries (F107)", down.error?.code === "unreachable" && /3 tries/.test(down.error.message) && drops.seen >= 3, { ...down, seen: drops.seen });
+  // F111: a cloud provider never sends again, as the server may have got the request.
+  Object.assign(drops, { seen: 0, always: true });
+  const cloud = await ask({ op: "server", baseURL: dropURL, tier: "cloud" });
+  check("Firefox: a cloud provider does not retry a dropped connection (F111)", cloud.error?.code === "unreachable" && !/tries/.test(cloud.error.message), { ...cloud, seen: drops.seen });
+  dropper.close();
+  // F111: all tries share the first send's timeout. The server drops each try after 1 s;
+  // with a 1.5 s timeout the call ends near 1.5 s, not after 3 tries and 1.5 s of waits.
+  const slow = { seen: 0 };
+  const slowDropper = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => { slow.seen++; setTimeout(() => res.socket?.destroy(), 1000); });
+  });
+  await new Promise((done) => slowDropper.listen(0, "127.0.0.1", done));
+  const late = await ask({ op: "server", baseURL: `http://127.0.0.1:${slowDropper.address().port}/v1`, timeoutMs: 1500 });
+  check("Firefox: retries stay inside the first send's timeout (F111)", ["timeout", "unreachable"].includes(late.error?.code) && late.ms < 2500, { ...late, seen: slow.seen });
+  slowDropper.closeAllConnections();
+  slowDropper.close();
 
   hub.state.cut = true;
   const cut = await embed("cut");

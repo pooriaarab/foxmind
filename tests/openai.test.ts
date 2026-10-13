@@ -43,6 +43,18 @@ describe("openaiCompatible", () => {
     expect(await provider.probe()).toMatchObject({ ok: false, code: "unreachable" });
   });
 
+  it("chat retries a dropped connection (F106)", async () => {
+    const { provider, seen } = await serve((_, res) => { if (seen.length === 1) res.socket?.destroy(); else json(res, 200, completion({ content: "back" })); });
+    expect((await provider.chat!(hi, {})).message.content).toBe("back");
+    expect(seen).toHaveLength(2);
+  });
+
+  it("probe does not retry (F110)", async () => {
+    const { provider, seen } = await serve((_, res) => { res.socket?.destroy(); });
+    expect(await provider.probe()).toMatchObject({ ok: false, code: "unreachable" });
+    expect(seen).toHaveLength(1);
+  });
+
   it("key leak (F15)", async () => {
     const { provider } = await serve((_, res) => json(res, 401, { error: { message: `Incorrect API key provided: ${KEY}` } }));
     const error = await failure(provider.chat!(hi, {}));
