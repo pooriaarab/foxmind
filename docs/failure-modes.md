@@ -308,3 +308,23 @@ real HTTP against a fake server.
 | F103 | An `onShadow` hook that throws breaks the call. | The error is caught and the call returns the planner's result. | "shadow hook throws" |
 | F105 | `shadow` runs the planner with the shadow role's options, so the planner's `json`, `escalate` and `maxInput` do not apply, and an escalating planner streams two answers into one `onDelta`. | The planner runs with its own role's options. `escalate` on the planner with `onDelta` throws a `TypeError` before any provider runs. No role moves on after text streamed. | "shadow uses the planner's own options" |
 | F104 | A call without a role goes to the scout. | Without `role`, the call uses the `plan` role when there is one, else the router as before. It never uses another role. | "no role" |
+
+## Retry of a local request that got no answer
+
+A local server (llama-server, or a proxy in front of it) can drop a
+connection for a short time: Firefox then says "NetworkError when attempting
+to fetch resource" and one failed planner call ended a whole agent run.
+Firefox says this for any drop before the response headers, so foxmind cannot
+tell a request the server never got from one it got and worked on. A retry
+can make a local server do the work twice; that costs time, not money, so
+only a local provider retries. Tests: `tests/http.test.ts`,
+`tests/openai.test.ts` and the Firefox E2E.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| F106 | The connection drops before the response headers, one time, and the run ends on `unreachable`. | The OpenAI-compatible `chat()` and `embed()` of a local provider send the request again, at most 2 more times, after 300 ms and then 1200 ms. A later good answer is the result. The server may have got an earlier try. | "dropped connection", "chat retries a dropped connection"; E2E F106 |
+| F107 | The server is down for good, and the retries hide it or loop. | After the last try, throw code `unreachable`. The message says how many tries ran. The tries are bounded: 3 sends, 1.5 s of waits, inside one timeout (F111). | "down after retries"; E2E F107 |
+| F108 | The caller aborts during a wait between two tries. | Stop the wait at once and throw `aborted`. Send nothing more. | "abort between tries" |
+| F109 | A retry repeats work after an answer, or doubles a long wait: a timeout, an HTTP error, a dropped stream, a redirect. | Retry only `unreachable` (fetch threw before any response). `timeout`, `http`, `rate_limited`, `stream_interrupted` and redirects run once. | "no retry after an answer" |
+| F110 | A probe retries, so a down server takes seconds to find. | `probe()` sends once. `call()` retries only when the request asks for it (`retries`). | "probe does not retry", "no retries by default" |
+| F111 | A cloud provider retries a drop that the server got, and bills the call twice; or each retry gets a full new timeout, so a slow drop takes three timeouts. | `call()` retries only for an origin of tier "local", and `openaiCompatible` asks for retries only on tier "local". All tries share the first send's timeout: a retry gets only the time left after its wait, and with no time left the call fails at once. | E2E F111 (cloud, timeout) |
