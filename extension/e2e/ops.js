@@ -1,5 +1,6 @@
 // Test-only background ops for e2e/run.mjs. Only the e2e build has them
 // (node scripts/build-ext.mjs --e2e). The build AMO signs drops this file.
+import { openaiCompatible } from "../../src/index.js";
 import { configureRuntime, gliner2, hasWebGPU, purgeModel, transformers, trialML, wllama } from "../../src/browser/index.js";
 
 /** The ops, given the shared trial ML provider (Firefox allows one engine) and the error mapper. */
@@ -21,6 +22,9 @@ export function testOps({ trial, failed }) {
   const ops = {
     env: async () => ({ crossOriginIsolated: globalThis.crossOriginIsolated, sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined", webgpuAdapter: await hasWebGPU(), userAgent: navigator.userAgent }),
     probe: (message) => provider(message).probe(),
+    // A planner call through Firefox's own fetch, to a server the test controls (F106, F107).
+    // `tier` forces a cloud provider on a local address (F111).
+    server: async (message) => ({ reply: await openaiCompatible({ baseURL: message.baseURL, model: "m1", timeoutMs: message.timeoutMs ?? 5000, ...(message.tier ? { tier: message.tier } : {}) }).chat([{ role: "user", content: "hi" }], {}) }),
     embed: (message) => reported(provider(message), async () => ({ vectors: await provider(message).embed(message.texts, {}) })),
     chat: (message) => reported(provider(message, "chat"), async () => ({ reply: await provider(message, "chat").chat(message.messages, { tools: message.tools }) })),
     trial: async (message) => {

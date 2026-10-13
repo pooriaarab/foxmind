@@ -300,7 +300,7 @@ other jobs, and the in-browser Qwen3 call passed the test's 180 s limit.
   headed run.
 - `json: true` on Anthropic is a system-prompt rule plus a JSON check, not
   constrained decoding.
-- foxmind does not retry. On `rate_limited`, use `retryAfterMs` to decide.
+- foxmind retries only one thing: a call to a local server that got no response headers (2 more tries, inside one timeout). The server may have got it. A cloud call never retries. On `rate_limited`, use `retryAfterMs` to decide.
 - Firefox unloads an idle background page, and the loaded model goes with it.
   An open popup or sidebar keeps the page loaded.
 - Firefox allows one trial ML engine per extension.
