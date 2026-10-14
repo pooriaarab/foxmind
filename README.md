@@ -1,124 +1,137 @@
 # foxmind
 
-One API for on-device AI models in the browser and for your own model key.
+[![npm version](https://img.shields.io/npm/v/foxmind)](https://www.npmjs.com/package/foxmind)
+[![Downloads/month](https://img.shields.io/npm/dm/foxmind)](https://www.npmjs.com/package/foxmind)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/license/mit)
 
-foxmind gives you one `chat`, `embed`, `extract` and `classify` call over three
-tiers of models: models that run in the browser, a model server on your own
-machine, and a cloud model that you pay for with your own key. Every result
-says which tier answered. When a tier cannot run, foxmind says why. It does not
-switch to another tier in secret.
+[Quickstart](#send-your-first-chat) · [API reference](#runtime-surfaces) · [Provider coverage](#coverage) · [FAQ](#faq)
+
+foxmind is an open-source JavaScript model router for developers who use browser inference, local model servers, and caller-supplied cloud keys.
+It exposes chat, embeddings, entity extraction, and classification.
+Results name the provider and execution tier; supported capabilities depend on the provider.
 
 ## Install
 
 ```bash
-npm i foxmind
+npm install foxmind
 ```
 
-For the in-browser models, also install the optional peer dependency:
-`npm i @huggingface/transformers`.
+The Node.js library and CLI require Node.js 24 or later.
+TypeScript declarations are included; there are no required runtime dependencies.
+For Transformers.js browser providers, install the optional peer dependency:
 
-## Example
+```bash
+npm install @huggingface/transformers
+```
 
-This runs in Node 24 or later. Start a local server first, for example
-`ollama pull qwen3:0.6b`.
+## Send your first chat
+
+Install Ollama and start its local server in one terminal:
+
+```bash
+ollama serve
+```
+
+In another terminal, download the model:
+
+```bash
+ollama pull qwen3:0.6b
+```
+
+Save this as `example.mjs`, then run `node example.mjs`.
+No API key, environment variable, or `.env` file is needed for this local example.
 
 ```js
-import { createMind, ollama, saluki } from "foxmind";
+import { createMind, ollama } from "foxmind";
 
 const mind = createMind({
-  providers: [saluki(), ollama({ model: "qwen3:0.6b" })],
-  only: ["browser", "local"], // private mode: no cloud provider is ever called
+  providers: [ollama({ model: "qwen3:0.6b" })],
+  only: ["local"],
 });
-
-const result = await mind.chat([{ role: "user", content: "Say hello in five words." }], { maxTokens: 1024 });
+const result = await mind.chat(
+  [{ role: "user", content: "Say hello." }],
+  { maxTokens: 1024 },
+);
 console.log(result.message.content);
 console.log(`answered by ${result.provider} (${result.tier})`);
-console.log(result.skipped.map((skip) => `${skip.provider}: ${skip.code}`));
 ```
 
-Output on our test machine. Saluki was not running, so the router skipped it
-and said why:
-
-```text
-Hi there!
-answered by ollama (local)
-[ 'saluki: unreachable' ]
-```
-
-Messages, tools and tool calls use the OpenAI chat completions shape. Code that
-you wrote for that API works here.
-
-## Use cases
-
-| Who | What they build | How foxmind helps |
-|---|---|---|
-| A Firefox extension developer | Local AI features in an extension: search, summaries, form help | `foxmind/browser` runs embeddings and small chat models in the extension's background page, on WebGPU or on single-thread WASM. |
-| A web app team | A "bring your own key" AI feature | `anthropic()` and `openaiCompatible()` take the user's key at call time and map both APIs to one shape. foxmind does not store the key. |
-| An agent builder who wants privacy | A private-mode agent planner (for example in foxloop or foxmate) | `saluki()` runs Underdog Saluki 27B on llama-server on the same machine. `only: ["browser", "local"]` drops the cloud tier, so page text cannot leave the machine through foxmind. |
-| A form-filling tool | Pull names, dates and places out of a request | `gliner2()` runs GLiNER2 entity extraction and label scoring in the browser, as foxpilot does. |
-| A notes or bookmarks app | Local semantic search | `mind.embed()` with `transformers()` or Firefox's own `trialML()` gives vectors without a server. |
-| A developer or a CI job | A check of which model servers run on a machine | `foxmind doctor` probes llama-server, Ollama and LM Studio, and prints the command that starts each one that is down. |
+Success prints model text followed by `answered by ollama (local)`.
+If the server or model is missing, the error lists the failed provider probe.
+For Firefox extensions, start Ollama with `OLLAMA_ORIGINS="moz-extension://*"`.
 
 ## How it works
 
-```mermaid
-flowchart TB
-  caller["Your code: mind.chat / embed / extract / classify"] --> router["createMind router"]
-  router -->|"1. drop tiers outside only, order by prefer"| order["providers in order"]
-  order -->|"2. probe (cached 30 s)"| probe{"can it run now?"}
-  probe -->|no| skip["add to result.skipped with code and reason"]
-  skip --> order
-  probe -->|yes| call["call the provider"]
-  call -->|ok| result["result + provider + tier + skipped"]
-  call -->|error| error["throw FoxmindError with code, provider, tier"]
-  subgraph browser["Tier 1: in the browser"]
-    T["transformers() embed or chat"]
-    G["gliner2() extract and classify"]
-    M["trialML() / wllama() on browser.trial.ml"]
-  end
-  subgraph local["Tier 2: a server on this machine"]
-    L["llamaServer() / saluki() :8080"]
-    O["ollama() :11434"]
-    S["lmStudio() :1234"]
-  end
-  subgraph cloud["Tier 3: your own key"]
-    A["anthropic()"]
-    C["openaiCompatible({ baseURL, apiKey })"]
-  end
-  call --- browser
-  call --- local
-  call --- cloud
+```text
+Call -> allowed tiers -> capability filter -> ordered providers -> cached probe
+                                                            -> result + provider + tier + skipped
 ```
 
-The router drops every provider whose tier is not in `only`, then tries the
-rest in the `prefer` order. `prefer` only changes the order; use `only` when
-text must not reach a tier. A provider that cannot run
-now (no WebGPU, server down, model missing, permission not granted) is skipped,
-and the skip goes into `result.skipped`. When a provider fails during a call,
-the router throws that error. It tries the next provider only when you set
-`fallbackOnError: true`, and never after text has streamed or the caller has
-aborted.
+`only` excludes tiers before any probe or call.
+`prefer` changes provider order without restricting tiers.
+Unavailable providers enter `skipped`; call failures throw unless fallback is enabled.
+Named chat roles have their own explicit fallback lists.
 
-```mermaid
-sequenceDiagram
-  participant Panel as Demo panel (popup or sidebar)
-  participant BG as Background page
-  participant Mind as createMind
-  participant Server as llama-server
-  Panel->>BG: runtime.sendMessage({ op: "local-chat" })
-  BG->>Mind: chat(messages)
-  Mind->>Server: GET /v1/models (probe)
-  Mind->>Server: POST /v1/chat/completions
-  Server-->>Mind: reply
-  Mind-->>BG: reply, provider "llama-server", tier "local"
-  BG-->>Panel: answer and "answered by llama-server (local)"
-```
+## Why it exists
 
-In an extension, the models live in the background page (an event page with a
-DOM in Firefox). Each view asks it with `runtime.sendMessage`, so the views
-share one loaded model.
+An application can use browser models, Ollama, and a cloud key through different protocols.
+AI SDK offers a provider abstraction; LiteLLM offers a Python SDK and a gateway.
+foxmind combines tier restrictions, model probes, and explicit routing inside a JavaScript library.
+It provides no managed inference endpoint.
 
-## API
+## Compare
+
+Checked on 2026-10-14 against [AI SDK provider documentation](https://ai-sdk.dev/docs/foundations/providers-and-models)
+and [LiteLLM documentation](https://docs.litellm.ai/docs/).
+
+| Property | foxmind | AI SDK | LiteLLM |
+|---|---|---|---|
+| Scope | Browser/local/cloud model router | Standard model-provider abstraction | Model SDK and AI gateway |
+| Deployment | JavaScript library | Application SDK | Python library or self-hosted gateway |
+| Configuration | Provider objects, tiers, named roles | Provider packages and registry | SDK options or gateway configuration |
+| Coverage model | Ten exported provider factories | First-party and community providers | SDK and gateway model integrations |
+
+## Coverage
+
+The source exports six server/cloud factories and four browser factories: ten total.
+Presets and wrappers are included in that count; it is not a count of independent inference engines.
+`—` means the factory does not expose that capability.
+
+| Factory / integration | Chat | Embed | Extract / classify | Verification status |
+|---|---|---|---|---|
+| `openaiCompatible`: OpenAI-compatible HTTP | ✓ | ✓ | — | HTTP fixtures; live cloud keys pending |
+| `anthropic`: Anthropic Messages API | ✓ | — | — | HTTP fixtures; live key pending |
+| `ollama`: Ollama | ✓ | ✓ | — | Implemented preset and remote-model probe |
+| `llamaServer`: llama.cpp llama-server | ✓ | ✓ | — | Implemented OpenAI-compatible preset |
+| `lmStudio`: LM Studio | ✓ | ✓ | — | Implemented OpenAI-compatible preset |
+| `saluki`: Underdog Saluki on llama-server | ✓ | ✓ | — | Preset tested with fixtures; live model pending |
+| `transformers`: Hugging Face Transformers.js | ✓ | ✓ | — | Select one task per provider; WASM path implemented |
+| `gliner2`: GLiNER2 | — | — | ✓ | Browser implementation; WebGPU verification pending |
+| `trialML`: Mozilla Firefox inference | ✓ | ✓ | — | Select one task; optional permission required |
+| `wllama`: Firefox llama.cpp backend | Experimental | — | — | Recorded Firefox runs timed out; no success claim |
+
+Checkmarks describe implemented methods, not model-level guarantees or credential checks.
+This rewrite runs local fixture tests and does not re-run model downloads, Firefox inference, or cloud credentials.
+OpenAI and OpenRouter use `openaiCompatible`; they have no separate factory.
+Servers must support the requested model and endpoint.
+
+## Common use cases
+
+1. Firefox extension developers use Transformers.js embeddings for local bookmark search.
+2. Ollama agent builders restrict routing with `only: ["browser", "local"]`.
+3. GLiNER2 application developers extract names and classify text inside a browser page.
+4. Node.js developers route planning and checking to separate llama-server instances with named roles.
+5. Anthropic application developers map Messages API replies into the common chat shape with their own key.
+
+## Features
+
+- **Tier policy:** exclude browser, local, or cloud execution; see [routing](#how-it-works).
+- **Provider diagnostics:** probes, status, download progress, and skipped reasons; see [doctor](#cli-foxmind-doctor).
+- **Chat roles:** ordered providers, input limits, deadlines, escalation, and shadow evaluation; see [roles](#roles-a-mixture-of-local-models).
+- **Streaming and tool calls:** provider-specific support with checked JSON arguments; see [limits](#delivery-and-behavior-limits).
+- **Browser inference:** optional Transformers.js and Firefox trial ML providers; see the [browser API](#foxmindbrowser-extension-pages-and-web-pages).
+
+## Runtime surfaces
 
 ### `foxmind` (Node and the browser)
 
@@ -216,9 +229,6 @@ does, and 2 for bad input. There is no MCP server.
 
 ### Extension
 
-Install from AMO: [addons.mozilla.org/firefox/addon/foxmind](https://addons.mozilla.org/firefox/addon/foxmind/)
-(pending AMO review; the link works after approval).
-
 `extension/` is a small Firefox extension. Its panel opens from the toolbar and
 in the sidebar. It shows which tiers work, sends a prompt to a local
 server, and compares two sentences with an in-browser embedding model. Build it
@@ -229,58 +239,7 @@ the content script. To let it reach Ollama, start Ollama with
 `OLLAMA_ORIGINS="moz-extension://*"`.
 Ollama refuses extension origins without it.
 
-## Tests
-
-`pnpm ci:local` runs lint, typecheck, 71 tests and the build. The tests start
-fake servers and call them over real HTTP. `docs/failure-modes.md` lists each
-failure mode (F1 to F72) and its test. The tests went in before the code.
-
-`pnpm e2e` runs the real thing and writes `artifacts/e2e-<date>.json`. First it
-sends chat, tool calls, streams and JSON requests to each local server that
-runs. Then it starts Firefox with the demo extension. `FOXMIND_E2E_HEAVY=1`
-adds Qwen3-0.6B chat and GLiNER2 in the browser. Results from our run on
-2026-10-09, in `artifacts/e2e-2026-10-09.json` (Firefox 157.0.1, Apple M3 Pro,
-headless, so WASM; all 32 checks passed):
-
-| Check | Result |
-|---|---|
-| llama-server, Qwen3-0.6B GGUF: chat / tool call / stream | 82 ms / 632 ms / 210 ms |
-| Ollama, qwen3:0.6b: chat / tool call / stream (it thinks first) | 1.7 s / 0.9 s / 1.3 s |
-| MiniLM embedding in Firefox: first load with download / cached load / one call | 1,124 ms / 180 ms / 9 ms |
-| Firefox trial ML, MiniLM embedding: first call / next call | 2.0 s / 17 ms |
-| Qwen3-0.6B chat in Firefox (WASM, q4): first answer with download / tool call | 34.2 s / 28.3 s |
-| GLiNER2 in Firefox (WASM, fp16): load with 614 MB download / extract / classify | 19.6 s / 1.6 s / 1.5 s |
-| GLiNER2 against the Python gliner2 library | 14 of 14 reference cases match |
-| Saluki 27B in the browser | refused before download: 7.90 GB is over the 4 GB limit |
-
-After the review fixes (redirects, aborts, `only`, idle timeouts, the release
-build), we ran `pnpm e2e` again without the heavy models:
-`artifacts/e2e-review-fixes-2026-10-09.json`, 27 of 27 checks passed. The heavy
-run was not repeated after the fixes: the test machine was under heavy load from
-other jobs, and the in-browser Qwen3 call passed the test's 180 s limit.
-
-## Firefox APIs used
-
-| API | MDN | Why |
-|---|---|---|
-| `browser.trial.ml` (`createEngine`, `runEngine`, `onProgress`) | No MDN page: [Firefox source docs](https://firefox-source-docs.mozilla.org/toolkit/components/ml/extensions.html) | `trialML()` and `wllama()` run Firefox's own inference engine. |
-| `permissions.request` / `permissions.contains` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/request) | Ask for the optional `trialML` permission, and check it before each call. |
-| `optional_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/optional_permissions) | `trialML` is an optional-only permission. |
-| `host_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/host_permissions) | The add-on calls model servers on this computer at `127.0.0.1` (llama-server on 8080, Ollama on 11434). |
-| `runtime.sendMessage` / `runtime.onMessage` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/sendMessage) | The panel asks the background page, which hosts the models. |
-| `runtime.getURL` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/getURL) | ONNX Runtime loads its WASM files from inside the extension, because MV3 allows no remote code. |
-| Background scripts (event page) | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Background_scripts) | The page that hosts the models. It has a DOM, Cache Storage and WebGPU. |
-| `action` popup and `sidebar_action` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/sidebar_action) | The demo panel opens in both places. |
-| `content_security_policy` with `'wasm-unsafe-eval'` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/content_security_policy) | Lets the extension compile WebAssembly. |
-| `unlimitedStorage` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#unlimitedstorage) | Model files can be hundreds of MB. |
-| `browser_specific_settings.gecko.data_collection_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings) | The demo collects no data. If your extension sends page text to a cloud key, declare `websiteContent` under `optional`. |
-| WebGPU (`navigator.gpu.requestAdapter`) | [MDN](https://developer.mozilla.org/en-US/docs/Web/API/GPU/requestAdapter) | `device: "auto"` picks WebGPU only when there is an adapter. |
-| WebAssembly | [MDN](https://developer.mozilla.org/en-US/docs/WebAssembly) | ONNX Runtime runs models on the CPU when there is no WebGPU. |
-| `crossOriginIsolated` / `SharedArrayBuffer` | [MDN](https://developer.mozilla.org/en-US/docs/Web/API/Window/crossOriginIsolated) | Extension pages have no `SharedArrayBuffer`, so the runtime uses one WASM thread. |
-| Cache Storage (`caches`) | [MDN](https://developer.mozilla.org/en-US/docs/Web/API/CacheStorage) | transformers.js caches model files there. foxmind deletes a model's files when they do not load. |
-| `fetch`, `AbortSignal.timeout`, `AbortSignal.any` | [MDN](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static) | Every server call has a timeout and honors the caller's abort. |
-
-## Limits
+## Delivery and behavior limits
 
 - We did not run Saluki 27B. We tested the `saluki()` preset against a fake
   server and checked that it refuses to run in the browser. The Saluki
@@ -316,30 +275,74 @@ other jobs, and the in-browser Qwen3 call passed the test's 180 s limit.
   transformers.js does not either. Hugging Face lists a SHA-256 for each LFS
   file in its API, so a check is possible later.
 
-## Part of the fox primitives
+## Integration guides
 
-```mermaid
-flowchart LR
-  foxkit[foxkit] -- template --> foxmind[foxmind]
-  foxmind --> foxpaw[foxpaw]
-  foxmind --> foxloop[foxloop]
-  foxmind -. optional .-> foxshield[foxshield]
-  foxmind --> foxmemory[foxmemory]
-  foxmind --> foxlens[foxlens]
-  foxvault[foxvault] -. will hold the keys .-> foxmind
-  click foxkit "https://github.com/pooriaarab/foxkit"
-  click foxmind "https://github.com/pooriaarab/foxmind"
-  click foxpaw "https://github.com/pooriaarab/foxpaw"
-  click foxloop "https://github.com/pooriaarab/foxloop"
-  click foxshield "https://github.com/pooriaarab/foxshield"
-  click foxmemory "https://github.com/pooriaarab/foxmemory"
-  click foxlens "https://github.com/pooriaarab/foxlens"
-  click foxvault "https://github.com/pooriaarab/foxvault"
+- [Ollama local chat](#send-your-first-chat): start the server and select an allowed tier.
+- [llama-server and Saluki setup](#foxmind-node-and-the-browser): configure a local model and tool-call template.
+- [Firefox browser inference](#foxmindbrowser-extension-pages-and-web-pages): configure providers, model files, and optional permissions.
+- [Model diagnostics CLI](#cli-foxmind-doctor): check local endpoints and print startup hints.
+
+## Status
+
+foxmind is a 0.x library; provider defaults and API shapes can change before 1.0.
+Report problems through [GitHub issues](https://github.com/pooriaarab/foxmind/issues).
+Public case studies are not yet published.
+The Firefox demo is a development surface; an approved add-on listing is not claimed here.
+
+## FAQ
+
+### What is foxmind?
+
+foxmind is a JavaScript router for browser, local-server, and cloud model providers.
+Its four inference operations are chat, embed, extract, and classify.
+
+### Which integrations are verified?
+
+foxmind has local fixture tests for routing and HTTP providers.
+Cloud keys, the Saluki model, and browser inference are not reverified by this README change.
+
+### Does foxmind provide a managed inference service?
+
+foxmind runs inside your application.
+You run local servers or supply your own provider keys.
+
+### How is foxmind different from AI SDK?
+
+foxmind exposes execution tiers, local probes, and named chat roles.
+[AI SDK](https://ai-sdk.dev/docs/foundations/providers-and-models) standardizes model access through its provider architecture.
+
+### How is foxmind different from LiteLLM?
+
+foxmind is a JavaScript library with browser inference providers.
+[LiteLLM](https://docs.litellm.ai/docs/) offers a Python SDK and an AI gateway deployment.
+
+### How do I keep foxmind calls local?
+
+foxmind excludes cloud providers when `only` allows browser and local tiers.
+Other local servers can forward remotely; inspect your server configuration.
+
+### Does foxmind fall back after an error?
+
+foxmind normally throws call failures; `fallbackOnError: true` enables general fallback.
+Named roles use their explicit provider lists, and streamed text or an abort blocks fallback.
+
+### Does every foxmind provider support tool calls?
+
+foxmind exposes tools on supported chat providers.
+Firefox trial ML rejects tools; tool quality still depends on the model.
+
+## Development
+
+```bash
+pnpm install
+pnpm ci:local
+pnpm e2e
 ```
 
-foxmind depends on no other fox primitive. The GLiNER2 code comes from
-[foxpilot](https://github.com/pooriaarab/foxpilot) (MIT, same author).
+The local gate checks lint, types, tests, builds, and the extension listing.
+End-to-end tests separately call available model servers and start Firefox.
+Set `FOXMIND_E2E_HEAVY=1` to include larger browser model downloads.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://opensource.org/license/mit)

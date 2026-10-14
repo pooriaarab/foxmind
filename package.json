@@ -1,7 +1,7 @@
 {
   "name": "foxmind",
   "version": "0.1.5",
-  "description": "One API for on-device AI models in the browser and for your own model key.",
+  "description": "JavaScript AI model routing for Firefox, Ollama, llama.cpp, LM Studio, Hugging Face and Anthropic with tier policies, chat and embeddings.",
   "type": "module",
   "license": "MIT",
   "author": "Pooria Arab",
@@ -58,5 +58,22 @@
     "@huggingface/transformers": {
       "optional": true
     }
-  }
+  },
+  "keywords": [
+    "ai-model-router",
+    "javascript",
+    "typescript",
+    "firefox",
+    "ollama",
+    "llama-cpp",
+    "lm-studio",
+    "hugging-face",
+    "transformers-js",
+    "anthropic",
+    "openai-compatible",
+    "gliner2",
+    "embeddings",
+    "local-inference",
+    "webgpu"
+  ]
 }
