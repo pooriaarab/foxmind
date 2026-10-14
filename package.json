@@ -1,6 +1,6 @@
 {
   "name": "foxmind",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "JavaScript AI model routing for Firefox, Ollama, llama.cpp, LM Studio, Hugging Face and Anthropic with tier policies, chat and embeddings.",
   "type": "module",
   "license": "MIT",
